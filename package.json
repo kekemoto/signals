@@ -1,0 +1,39 @@
+{
+  "name": "@kekemoto/signals",
+  "version": "0.1.0",
+  "description": "最小リアクティブシステム（signal / effect / memo / reactive）と DOM ユーティリティ",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./reactive": "./reactive.js",
+    "./h": "./h.js",
+    "./tags": "./tags.js",
+    "./for": "./for.js",
+    "./show": "./show.js"
+  },
+  "files": [
+    "index.js",
+    "reactive.js",
+    "h.js",
+    "tags.js",
+    "for.js",
+    "show.js"
+  ],
+  "scripts": {
+    "test": "node test-core.js && node test-owner.js"
+  },
+  "keywords": [
+    "signals",
+    "reactive",
+    "fine-grained",
+    "dom"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kekemoto/signals.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
