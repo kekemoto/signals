@@ -3,6 +3,9 @@
 // 「穴が属性か子か」の文字列判定が要らない。穴ごとに effect を張るのは同じ。
 import { effect } from "./reactive.js";
 
+/** reactive な属性値・子テキストとして描画できるプリミティブ。 */
+type Renderable = string | number | boolean | null | undefined;
+
 /** props の値。関数なら reactive な属性/イベントハンドラになる。 */
 export type PropValue =
   | string
@@ -11,7 +14,7 @@ export type PropValue =
   | null
   | undefined
   | EventListenerOrEventListenerObject
-  | (() => unknown);
+  | (() => Renderable);
 
 /** h(tag, props, ...) の props。`onXxx` はイベント、関数値は reactive 属性。 */
 export type Props = Record<string, PropValue>;
@@ -24,7 +27,7 @@ export type Child =
   | boolean
   | null
   | undefined
-  | (() => unknown)
+  | (() => Renderable)
   | Child[];
 
 export function h(tag: string, props?: Props | null, ...children: Child[]): HTMLElement {
@@ -35,7 +38,7 @@ export function h(tag: string, props?: Props | null, ...children: Child[]): HTML
     if (key.startsWith("on") && typeof v === "function") {
       el.addEventListener(key.slice(2).toLowerCase(), v as EventListener); // onClick → click
     } else if (typeof v === "function") {
-      effect(() => setAttr(el, key, (v as () => unknown)()));               // reactive な属性
+      effect(() => setAttr(el, key, (v as () => Renderable)()));            // reactive な属性
     } else {
       setAttr(el, key, v);                                                  // 静的な属性
     }
