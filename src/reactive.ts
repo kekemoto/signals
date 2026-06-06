@@ -193,24 +193,6 @@ export function onCleanup(fn: () => void): void {
   if (currentOwner) currentOwner.cleanups.push(fn);
 }
 
-// --- untrack ----------------------------------------------------------------
-// fn 内での signal 読み取りを依存として登録しない。
-// 「effect の中で値を読みたいが、その変化には反応したくない」ケースで使う。
-//   effect(() => {
-//     const x = a.value;                    // a が変わると effect が再実行される
-//     const y = untrack(() => b.value);     // b が変わっても再実行されない
-//     console.log(x + y);
-//   });
-export function untrack<T>(fn: () => T): T {
-  const prevObserver = activeComputation;
-  activeComputation = null;
-  try {
-    return fn();
-  } finally {
-    activeComputation = prevObserver;
-  }
-}
-
 // --- createRoot -------------------------------------------------------------
 // 所有ツリーの「独立した根」を作る。fn には dispose 関数が渡され、root の中で作った
 // effect / memo はこの根にぶら下がる。dispose を呼ぶと、その配下をまとめて畳める。
