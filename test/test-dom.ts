@@ -96,6 +96,18 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("For: 削除で該当行だけ消える", liByID("a") === null && ids() === "cbd", `ids=${ids()}`);
 }
 
+// === For: 重複キーは throw（黙ってリークさせない）===
+{
+  const { ul, li } = tags;
+  const items = signal([{ id: "x" }, { id: "x" }]);
+  const el = mount();
+  let threw = false;
+  try {
+    el.append(ul(For(() => items.value, (i: { id: string }) => i.id, (item: { id: string }) => li({}, item.id))));
+  } catch { threw = true; }
+  check("For: 重複キーで throw", threw, `threw=${threw}`);
+}
+
 // === Show ===
 {
   const { div, span } = tags;
@@ -110,6 +122,24 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("Show: false で fallback に切替", !el.querySelector(".yes") && !!el.querySelector(".no"));
   visible.value = true;
   check("Show: true で本体を再表示", !!el.querySelector(".yes") && made === 2, `made=${made}`);
+}
+
+// === Show: fallback 省略 / null のとき false で何も表示しない ===
+{
+  const { div, span } = tags;
+  const visible = signal(false);
+  const el = mount();
+  el.append(div(Show(() => visible.value, () => span({ class: "yes" }, "見える"))));
+  check("Show: false かつ fallback 省略で何も表示しない", !el.querySelector(".yes"));
+  visible.value = true;
+  check("Show: その後 true で本体表示", !!el.querySelector(".yes"));
+}
+{
+  const { div, span } = tags;
+  const visible = signal(false);
+  const el = mount();
+  el.append(div(Show(() => visible.value, () => span({ class: "yes" }, "見える"), null)));
+  check("Show: false かつ fallback=null で何も表示しない", !el.querySelector(".yes"));
 }
 
 console.log(log.join("\n"));

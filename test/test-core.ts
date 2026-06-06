@@ -194,6 +194,29 @@ function check(name: string, cond: unknown, detail = ""): void {
   check("[堅牢性] 例外後もシステム回復", runs === 2, `runs=${runs}`);
 }
 
+// 18. reactive: Symbol キーも追跡する
+{
+  const sym = Symbol("s");
+  const state: Record<symbol, number> = reactive({ [sym]: 1 });
+  let seen, runs = 0;
+  effect(() => { runs++; seen = state[sym]; });
+  state[sym] = 2;
+  check("reactive Symbolキー反応", seen === 2 && runs === 2, `runs=${runs} seen=${seen}`);
+}
+
+// 19. 例外を投げる effect 内での signal 書き込みも、購読する別 effect に伝播する
+{
+  const trigger = signal(0);
+  const data = signal(0);
+  let seen = -1;
+  effect(() => { seen = data.value; });          // data を購読
+  effect(() => {
+    if (trigger.value === 1) { data.value = 9; throw new Error("boom"); }
+  });
+  try { trigger.value = 1; } catch {}
+  check("[堅牢性] 例外effect内のsignal書き込みも伝播", seen === 9, `seen=${seen}`);
+}
+
 console.log(log.join("\n"));
 console.log(`\n==> ${mod}\n    pass=${pass} fail=${fail}`);
 process.exit(fail > 0 ? 1 : 0);
