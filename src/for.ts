@@ -35,6 +35,7 @@ export function For<T>(
     // 1. 各 item のノードを用意（既存は使い回し、新規だけ createRoot で作る）
     const nodes = items.map((item, i) => {
       const key = keys[i];
+      if (next.has(key)) throw new Error(`For: duplicate key: ${String(key)}`);
       let entry = entries.get(key);
       if (!entry) {
         let node!: Node;
