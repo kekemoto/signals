@@ -1,5 +1,5 @@
 // =============================================================================
-// reactive.js — ライブラリ非依存の最小リアクティブコア
+// reactive.ts — ライブラリ非依存の最小リアクティブコア
 //
 //   signal    : 値を持ち、読まれたら依存登録・書かれたら購読者へ通知するセル
 //   effect    : 依存が変わると再実行される副作用。dispose 関数を返す
@@ -36,20 +36,51 @@
 //     （個別 key の読み書きと、キーの新規追加・削除は追跡する）
 // =============================================================================
 
+// --- 型 ---------------------------------------------------------------------
+/** `.value` で読み書き、`.peek()` で追跡せずに読むリアクティブセル。 */
+export interface Signal<T> {
+  value: T;
+  /** 依存登録せずに現在値を読む。 */
+  peek(): T;
+}
+
+/** `memo` の読み口。関数として呼ぶと最新のキャッシュ値を返す。 */
+export interface Memo<T> {
+  (): T;
+  /** 内部 effect を解放する（トップレベル memo の明示停止用）。 */
+  dispose: () => void;
+}
+
+// 購読者リスト（ある signal / key を読んでいる computation の集合）。
+type Subscribers = Set<Computation>;
+
+// 所有ツリーのノード。effect の本体(run)と createRoot の根が共通で持つ。
+interface Owner {
+  deps: Set<Subscribers>;        // 自分が購読している購読者リスト（古い依存の掃除用）
+  children: Set<Computation>;    // 子ノード（自分の中で作られた effect / memo）
+  cleanups: Array<() => void>;   // onCleanup で登録された後始末
+  owner: Owner | null;           // 作成時の親
+}
+
+// 依存追跡の対象になる computation。run() で再実行される callable な Owner。
+interface Computation extends Owner {
+  (): void;
+}
+
 // --- 内部状態 ---------------------------------------------------------------
-let activeComputation = null;      // いま依存を集めている effect（observer）
-let currentOwner = null;           // いまの所有ツリーの親（effect か createRoot の根）
-let batchDepth = 0;                // batch() のネスト深さ
-const pendingEffects = new Set();  // バッチ終了時にまとめて走らせる effect
+let activeComputation: Computation | null = null; // いま依存を集めている effect（observer）
+let currentOwner: Owner | null = null;             // いまの所有ツリーの親（effect か createRoot の根）
+let batchDepth = 0;                                // batch() のネスト深さ
+const pendingEffects = new Set<Computation>();     // バッチ終了時にまとめて走らせる effect
 
 // 溜まった effect を一度ずつ実行する。
 // 1つの effect が例外を投げても残りはすべて実行し、最初の例外だけを投げ直す。
 // （pendingEffects は実行前にクリアするので、ここで途中で抜けると残りの effect が
 //   恒久的に失われる ＝ 1つのバグが無関係な effect を巻き添えにする。それを防ぐ）
-function flush() {
+function flush(): void {
   const list = [...pendingEffects];
   pendingEffects.clear();
-  let firstError;
+  let firstError: unknown;
   let errored = false;
   for (const run of list) {
     try {
@@ -62,7 +93,7 @@ function flush() {
 }
 
 // fn 中の変更をまとめ、最後に一度だけ flush する
-export function batch(fn) {
+export function batch<T>(fn: () => T): T {
   batchDepth++;
   try {
     return fn();
@@ -72,14 +103,14 @@ export function batch(fn) {
 }
 
 // 依存していた全ての購読者リストから自分を外す（古い依存の掃除）
-function unsubscribe(node) {
-  for (const subscribers of node.deps) subscribers.delete(node);
+function unsubscribe(node: Owner): void {
+  for (const subscribers of node.deps) subscribers.delete(node as Computation);
   node.deps.clear();
 }
 
 // node のサブツリーを掃除する: 子を再帰で畳む → onCleanup を実行 → 依存を解除。
 // node 自身は親の children に残す（effect の再実行で同じ node を再利用するため）。
-function cleanup(node) {
+function cleanup(node: Owner): void {
   for (const child of node.children) cleanup(child); // 子を先に畳む（深い方から）
   node.children.clear();
   for (const fn of node.cleanups) fn();              // ユーザー登録の後始末
@@ -88,13 +119,13 @@ function cleanup(node) {
 }
 
 // node を完全に破棄する: サブツリーを掃除し、親の children からも外す。
-function dispose(node) {
+function dispose(node: Owner): void {
   cleanup(node);
-  if (node.owner) node.owner.children.delete(node);
+  if (node.owner) node.owner.children.delete(node as Computation);
 }
 
 // 読み取り中の effect を、いま触った購読者リストに相互登録する
-function track(subscribers) {
+function track(subscribers: Subscribers): void {
   if (activeComputation) {
     subscribers.add(activeComputation);
     activeComputation.deps.add(subscribers);
@@ -102,7 +133,7 @@ function track(subscribers) {
 }
 
 // 購読者を再実行キューに積む（batch 内なら合流し、最後に一度だけ flush される）
-function notify(subscribers) {
+function notify(subscribers: Subscribers): void {
   batch(() => {
     for (const run of subscribers) pendingEffects.add(run);
   });
@@ -110,15 +141,15 @@ function notify(subscribers) {
 
 // --- signal -----------------------------------------------------------------
 // 値ひとつ＋購読者リストひとつのリアクティブセル。
-export function signal(initial) {
+export function signal<T>(initial: T): Signal<T> {
   let value = initial;
-  const subscribers = new Set();
+  const subscribers: Subscribers = new Set();
   return {
-    get value() {
+    get value(): T {
       track(subscribers);                 // 読まれた → 依存登録
       return value;
     },
-    set value(next) {
+    set value(next: T) {
       if (Object.is(next, value)) return; // 無変化なら何もしない
       value = next;
       notify(subscribers);                // 購読者へ通知
@@ -131,8 +162,8 @@ export function signal(initial) {
 // 依存が変わると再実行される副作用。戻り値を呼ぶと購読解除（dispose）。
 // run() 自身が「実行中の effect」の正体。依存(deps)・子(children)・後始末(cleanups)・
 // 作成時の親(owner) をプロパティとして持ち回る。
-export function effect(fn) {
-  function run() {
+export function effect(fn: () => void): () => void {
+  const run = (() => {
     cleanup(run);                         // 毎回、前回の子・後始末・依存を捨ててから
     const prevObserver = activeComputation;
     const prevOwner = currentOwner;
@@ -144,7 +175,7 @@ export function effect(fn) {
       activeComputation = prevObserver;
       currentOwner = prevOwner;
     }
-  }
+  }) as Computation;
   run.deps = new Set();
   run.children = new Set();
   run.cleanups = [];
@@ -158,7 +189,7 @@ export function effect(fn) {
 // 現在の effect に後始末を登録する。effect が「再実行される直前」と「dispose される時」
 // に呼ばれる。setInterval の clear、購読解除、AbortController.abort などに使う。
 // effect の外で呼んでも何も起きない（捨てられる）。
-export function onCleanup(fn) {
+export function onCleanup(fn: () => void): void {
   if (currentOwner) currentOwner.cleanups.push(fn);
 }
 
@@ -167,8 +198,8 @@ export function onCleanup(fn) {
 // effect / memo はこの根にぶら下がる。dispose を呼ぶと、その配下をまとめて畳める。
 // 親の所有ツリーには繋がない（＝自動では畳まれない、明示 dispose 用の独立スコープ）。
 // リストの行のように「個別に生かしたり消したりしたい単位」を包むのに使う。
-export function createRoot(fn) {
-  const owner = { deps: new Set(), children: new Set(), cleanups: [], owner: null };
+export function createRoot<T>(fn: (dispose: () => void) => T): T {
+  const owner: Owner = { deps: new Set(), children: new Set(), cleanups: [], owner: null };
   const prevOwner = currentOwner;
   const prevObserver = activeComputation;
   currentOwner = owner;
@@ -190,11 +221,11 @@ export function createRoot(fn) {
 //   - 代償: eager（未使用でも計算する）/ 生入力と同じ effect で読むと二重実行
 // 内部 effect は所有ツリーに乗るので、effect の中で作った memo は親と一緒に畳まれる。
 // トップレベルで作った memo を明示的に止めたいときだけ read.dispose() を使う。
-export function memo(fn) {
-  const cache = signal(undefined);
+export function memo<T>(fn: () => T): Memo<T> {
+  const cache = signal<T | undefined>(undefined);
   const disposeMemo = effect(() => { cache.value = fn(); }); // 依存が変わるたび計算
-  const read = () => cache.value;                           // 読み口（fullName() のように呼ぶ）
-  read.dispose = disposeMemo;                               // 任意: 内部 effect の解放用
+  const read = (() => cache.value as T) as Memo<T>;          // 読み口（fullName() のように呼ぶ）
+  read.dispose = disposeMemo;                                // 任意: 内部 effect の解放用
   return read;
 }
 
@@ -203,16 +234,17 @@ export function memo(fn) {
 // 「プロパティ名をキーにした signal の束」と考えると分かりやすい。
 // in-place な変更（state.count++ や state.a.b = x）がそのまま反応する。
 const RAW = Symbol("raw");          // proxy から生オブジェクトを取り出す目印
-const proxyCache = new WeakMap();   // 同じ生オブジェクト → 同じ proxy（同一性を保つ）
+const proxyCache = new WeakMap<object, unknown>();   // 同じ生オブジェクト → 同じ proxy（同一性を保つ）
 
-export function reactive(target) {
+export function reactive<T>(target: T): T {
   if (!target || typeof target !== "object") return target; // プリミティブは素通し
-  if (target[RAW]) return target;                           // 既に proxy
-  if (proxyCache.has(target)) return proxyCache.get(target);
+  const obj = target as Record<PropertyKey, unknown>;
+  if (obj[RAW]) return target;                              // 既に proxy
+  if (proxyCache.has(obj)) return proxyCache.get(obj) as T;
 
-  const subscribersByKey = new Map();   // key ごとに購読者リストを遅延生成
+  const subscribersByKey = new Map<PropertyKey, Subscribers>();   // key ごとに購読者リストを遅延生成
 
-  function subscribersOf(key) {
+  function subscribersOf(key: PropertyKey): Subscribers {
     let subscribers = subscribersByKey.get(key);
     if (!subscribers) {
       subscribers = new Set();
@@ -221,29 +253,29 @@ export function reactive(target) {
     return subscribers;
   }
 
-  const proxy = new Proxy(target, {
-    get(obj, key, receiver) {
-      if (key === RAW) return obj;
+  const proxy = new Proxy(obj, {
+    get(o, key, receiver) {
+      if (key === RAW) return o;
       track(subscribersOf(key));                              // 読まれた key を依存に
-      const value = Reflect.get(obj, key, receiver);
+      const value = Reflect.get(o, key, receiver);
       return value && typeof value === "object" ? reactive(value) : value; // ネストも深く
     },
-    set(obj, key, value, receiver) {
-      const raw = value?.[RAW] ?? value;                      // proxy なら生に戻して保存
-      const existed = key in obj;
-      const prev = obj[key];
-      const ok = Reflect.set(obj, key, raw, receiver);
+    set(o, key, value, receiver) {
+      const raw = (value as Record<PropertyKey, unknown> | null)?.[RAW] ?? value; // proxy なら生に戻して保存
+      const existed = key in o;
+      const prev = o[key];
+      const ok = Reflect.set(o, key, raw, receiver);
       if (!existed || !Object.is(prev, raw)) notify(subscribersOf(key)); // key 単位で判定
       return ok;
     },
-    deleteProperty(obj, key) {
-      const existed = key in obj;
-      const ok = Reflect.deleteProperty(obj, key);
+    deleteProperty(o, key) {
+      const existed = key in o;
+      const ok = Reflect.deleteProperty(o, key);
       if (existed) notify(subscribersOf(key));
       return ok;
     },
   });
 
-  proxyCache.set(target, proxy);
-  return proxy;
+  proxyCache.set(obj, proxy);
+  return proxy as T;
 }

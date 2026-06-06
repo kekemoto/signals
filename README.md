@@ -1,6 +1,6 @@
 # @kekemoto/signals
 
-ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。
+ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
 - **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot`
 - **DOM** — `h` / `tags` / `For` / `Show`
@@ -233,10 +233,20 @@ effect(() => {
 トップレベル（どの effect にも属さない場所）で作った effect・memo は自動では畳まれない。
 その場合は戻り値（dispose 関数）か `createRoot` で明示的に管理する。
 
+## 開発
+
+ソースは TypeScript（ルートの `*.ts`）。`tsc` で `dist/` に ESM（`.js`）と型定義（`.d.ts`）を出力する。
+
+```bash
+npm install   # devDependencies（typescript / jsdom 等）
+npm run build # dist/ にコンパイル
+```
+
 ## テスト
 
 ```bash
-npm test
+npm test       # build してから core / owner テストを実行（jsdom 不要）
+npm run test:dom  # build してから DOM テストを実行（jsdom が必要）
 ```
 
 ## ライセンス

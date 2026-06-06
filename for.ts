@@ -1,4 +1,4 @@
-// for.js — key 付きリスト差分（reconciliation）。h.js / tags.js と組み合わせる。
+// for.ts — key 付きリスト差分（reconciliation）。h.ts / tags.ts と組み合わせる。
 //   For(() => items.value, item => item.id, item => h("li", {}, item.text))
 // 要点:
 //   - key ごとに DOM ノードを覚えておき、再描画では「作り直さず使い回す」
@@ -7,13 +7,22 @@
 //   - 消えた key の行だけ dispose して DOM から除去する
 import { effect, createRoot } from "./reactive.js";
 
-export function For(itemsFn, keyFn, render) {
+interface Entry {
+  node: Node;
+  dispose: () => void;
+}
+
+export function For<T>(
+  itemsFn: () => T[],
+  keyFn: (item: T) => unknown,
+  render: (item: T) => Node,
+): DocumentFragment {
   const start = document.createComment("for");
   const end = document.createComment("/for");
   const frag = document.createDocumentFragment();
   frag.append(start, end);                  // この2つの間にリストを並べる
 
-  let entries = new Map();                   // key -> { node, dispose }
+  let entries = new Map<unknown, Entry>();   // key -> { node, dispose }
 
   effect(() => {
     const items = itemsFn();                 // ここで配列を購読（変わると再実行）
@@ -21,15 +30,16 @@ export function For(itemsFn, keyFn, render) {
     if (!parent) return;                     // まだ DOM に挿入されていない
 
     const keys = items.map(keyFn);
-    const next = new Map();
+    const next = new Map<unknown, Entry>();
 
     // 1. 各 item のノードを用意（既存は使い回し、新規だけ createRoot で作る）
     const nodes = items.map((item, i) => {
       const key = keys[i];
       let entry = entries.get(key);
       if (!entry) {
-        let node, dispose;
-        createRoot(d => { dispose = d; node = render(item); }); // 行ごとの独立スコープ
+        let node!: Node;
+        let dispose!: () => void;
+        createRoot((d) => { dispose = d; node = render(item); }); // 行ごとの独立スコープ
         entry = { node, dispose };
       }
       next.set(key, entry);
@@ -38,7 +48,7 @@ export function For(itemsFn, keyFn, render) {
 
     // 2. 消えた key の行だけ片付ける（dispose で行内の effect も止める）
     for (const [key, entry] of entries) {
-      if (!next.has(key)) { entry.dispose(); entry.node.remove(); }
+      if (!next.has(key)) { entry.dispose(); (entry.node as ChildNode).remove(); }
     }
 
     // 3. 新しい順序に並べ替え（end の手前へ順に挿入＝使い回しノードは移動するだけ）

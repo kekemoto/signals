@@ -3,30 +3,61 @@
   "version": "0.1.0",
   "description": "最小リアクティブシステム（signal / effect / memo / reactive）と DOM ユーティリティ",
   "type": "module",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./index.js",
-    "./reactive": "./reactive.js",
-    "./h": "./h.js",
-    "./tags": "./tags.js",
-    "./for": "./for.js",
-    "./show": "./show.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./reactive": {
+      "types": "./dist/reactive.d.ts",
+      "default": "./dist/reactive.js"
+    },
+    "./h": {
+      "types": "./dist/h.d.ts",
+      "default": "./dist/h.js"
+    },
+    "./tags": {
+      "types": "./dist/tags.d.ts",
+      "default": "./dist/tags.js"
+    },
+    "./for": {
+      "types": "./dist/for.d.ts",
+      "default": "./dist/for.js"
+    },
+    "./show": {
+      "types": "./dist/show.d.ts",
+      "default": "./dist/show.js"
+    }
   },
   "files": [
-    "index.js",
-    "reactive.js",
-    "h.js",
-    "tags.js",
-    "for.js",
-    "show.js"
+    "dist/index.*",
+    "dist/reactive.*",
+    "dist/h.*",
+    "dist/tags.*",
+    "dist/for.*",
+    "dist/show.*",
+    "index.ts",
+    "reactive.ts",
+    "h.ts",
+    "tags.ts",
+    "for.ts",
+    "show.ts"
   ],
   "scripts": {
-    "test": "node test-core.js && node test-owner.js"
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node dist/test-core.js && node dist/test-owner.js",
+    "test:dom": "npm run build && node dist/test-dom.js",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [
     "signals",
     "reactive",
     "fine-grained",
-    "dom"
+    "dom",
+    "typescript"
   ],
   "license": "Apache-2.0",
   "repository": {
@@ -35,5 +66,11 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^25.9.2",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3"
   }
 }
