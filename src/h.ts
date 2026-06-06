@@ -12,10 +12,10 @@ export type PropValue = Renderable | EventListenerOrEventListenerObject | (() =>
 /** h(tag, props, ...) の props。`onXxx` はイベント、関数値は reactive 属性。 */
 export type Props = Record<string, PropValue>;
 
-/** h(...) に渡せる子。関数なら reactive なテキスト、配列はフラット化される。 */
+/** h(tag, props, child) に渡せる子。単一の子か子の配列。関数なら reactive なテキスト、配列はフラット化される。 */
 export type Child = Node | Renderable | (() => Renderable) | Child[];
 
-export function h(tag: string, props?: Props | null, ...children: Child[]): HTMLElement {
+export function h(tag: string, props?: Props | null, children?: Child): HTMLElement {
   const el = document.createElement(tag);
 
   for (const key in (props || {})) {
@@ -29,7 +29,8 @@ export function h(tag: string, props?: Props | null, ...children: Child[]): HTML
     }
   }
 
-  for (const child of (children as unknown[]).flat(Infinity) as Child[]) appendChild(el, child);
+  // children は単一の子か、子の配列。配列はネストしていてもフラット化する。
+  for (const child of ([children] as unknown[]).flat(Infinity) as Child[]) appendChild(el, child);
   return el;
 }
 
