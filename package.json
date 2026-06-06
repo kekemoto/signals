@@ -3,53 +3,43 @@
   "version": "0.1.0",
   "description": "最小リアクティブシステム（signal / effect / memo / reactive）と DOM ユーティリティ",
   "type": "module",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
     },
     "./reactive": {
-      "types": "./dist/reactive.d.ts",
-      "default": "./dist/reactive.js"
+      "types": "./dist/src/reactive.d.ts",
+      "default": "./dist/src/reactive.js"
     },
     "./h": {
-      "types": "./dist/h.d.ts",
-      "default": "./dist/h.js"
+      "types": "./dist/src/h.d.ts",
+      "default": "./dist/src/h.js"
     },
     "./tags": {
-      "types": "./dist/tags.d.ts",
-      "default": "./dist/tags.js"
+      "types": "./dist/src/tags.d.ts",
+      "default": "./dist/src/tags.js"
     },
     "./for": {
-      "types": "./dist/for.d.ts",
-      "default": "./dist/for.js"
+      "types": "./dist/src/for.d.ts",
+      "default": "./dist/src/for.js"
     },
     "./show": {
-      "types": "./dist/show.d.ts",
-      "default": "./dist/show.js"
+      "types": "./dist/src/show.d.ts",
+      "default": "./dist/src/show.js"
     }
   },
   "files": [
-    "dist/index.*",
-    "dist/reactive.*",
-    "dist/h.*",
-    "dist/tags.*",
-    "dist/for.*",
-    "dist/show.*",
-    "index.ts",
-    "reactive.ts",
-    "h.ts",
-    "tags.ts",
-    "for.ts",
-    "show.ts"
+    "dist/src",
+    "src"
   ],
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node dist/test-core.js && node dist/test-owner.js",
-    "test:dom": "npm run build && node dist/test-dom.js",
+    "test": "npm run build && node dist/test/test-core.js && node dist/test/test-owner.js",
+    "test:dom": "npm run build && node dist/test/test-dom.js",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [

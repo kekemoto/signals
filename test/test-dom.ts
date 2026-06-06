@@ -1,15 +1,15 @@
 // test-dom.ts — h / tags / For / Show の DOM テスト
-// 実行: npm i jsdom してから  node dist/test-dom.js
+// 実行: npm i jsdom してから  node dist/test/test-dom.js
 import { JSDOM } from "jsdom";
 const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).document = dom.window.document;
 (globalThis as any).Node = dom.window.Node;
 
-const { signal } = await import("./reactive.js");
-const { h } = await import("./h.js");
-const { tags } = await import("./tags.js");
-const { For } = await import("./for.js");
-const { Show } = await import("./show.js");
+const { signal } = await import("../src/reactive.js");
+const { h } = await import("../src/h.js");
+const { tags } = await import("../src/tags.js");
+const { For } = await import("../src/for.js");
+const { Show } = await import("../src/show.js");
 
 let pass = 0, fail = 0;
 const log: string[] = [];

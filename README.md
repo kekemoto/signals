@@ -235,7 +235,14 @@ effect(() => {
 
 ## 開発
 
-ソースは TypeScript（ルートの `*.ts`）。`tsc` で `dist/` に ESM（`.js`）と型定義（`.d.ts`）を出力する。
+ソースは TypeScript。`src/` にライブラリ本体、`test/` にテストを置く。`tsc` で `dist/` に
+構造を保ったままコンパイルする（`src/x.ts` → `dist/src/x.js`、`test/y.ts` → `dist/test/y.js`）。
+出力は ESM（`.js`）と型定義（`.d.ts`）。
+
+```
+src/    reactive.ts / h.ts / tags.ts / for.ts / show.ts / index.ts
+test/   test-core.ts / test-owner.ts / test-dom.ts
+```
 
 ```bash
 npm install   # devDependencies（typescript / jsdom 等）

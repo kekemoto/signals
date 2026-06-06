@@ -1,6 +1,6 @@
 // test-core.ts — signal / effect / batch / memo / reactive の回帰テスト
-// 実行: node dist/test-core.js  (jsdom 不要)
-const mod = process.argv[2] || "./reactive.js";
+// 実行: node dist/test/test-core.js  (jsdom 不要)
+const mod = process.argv[2] || "../src/reactive.js";
 const { signal, effect, batch, memo, reactive } = await import(mod);
 
 let pass = 0, fail = 0;

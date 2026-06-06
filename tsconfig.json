@@ -1,20 +1,31 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "rootDir": ".",
-    "outDir": "dist",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "strict": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true
+    // --- 出力する JS の言語ターゲット / モジュール形式 ---
+    "target": "ES2022",          // 出力 JS の構文レベル。トップレベル await を使うテストのため ES2022
+    "module": "NodeNext",        // Node の ESM 解決規則で出力（package.json "type":"module" と整合）
+    "moduleResolution": "NodeNext", // import の解決も Node ESM 流（相対 import は拡張子 .js 必須）
+
+    // --- 型を引くときに使う標準ライブラリ定義 ---
+    "lib": ["ES2022", "DOM", "DOM.Iterable"], // DOM = document/Node/HTMLElement 等、DOM.Iterable = NodeList の for-of
+
+    // --- 入出力のディレクトリ ---
+    "rootDir": ".",              // 入力ルート。src/ と test/ の親なので dist/ 配下に構造が保たれる
+    "outDir": "dist",            // 出力先。src/x.ts → dist/src/x.js、test/y.ts → dist/test/y.js
+
+    // --- ライブラリとして配布するための出力物 ---
+    "declaration": true,         // 型定義 .d.ts を生成（利用者が型を引ける）
+    "declarationMap": true,      // .d.ts.map を生成（エディタの「定義へ移動」が .ts ソースへ飛ぶ）
+    "sourceMap": true,           // .js.map を生成（スタックトレースが .ts 行を指す）
+
+    // --- 型チェックの厳しさ ---
+    "strict": true,              // strict 系を一括 ON（null チェック・暗黙 any 禁止 等）
+    "noUnusedLocals": false,     // テストで s.value; のような「読みだけ」を許すため OFF
+    "noUnusedParameters": false, // Proxy ハンドラの未使用引数を許すため OFF
+
+    // --- その他 ---
+    "skipLibCheck": true,            // node_modules の .d.ts は型チェックしない（DOM と @types/node の衝突回避・高速化）
+    "esModuleInterop": true,         // CommonJS な依存（jsdom 等）を default import しやすくする
+    "forceConsistentCasingInFileNames": true // ファイル名の大文字小文字をOS差異に依らず統一
   },
-  "include": ["*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"] // コンパイル対象
 }

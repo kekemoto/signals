@@ -1,6 +1,6 @@
 // test-owner.ts — owner ツリー / onCleanup / createRoot のテスト
-// 実行: node dist/test-owner.js  (jsdom 不要)
-import { signal, effect, memo, onCleanup, batch, createRoot } from "./reactive.js";
+// 実行: node dist/test/test-owner.js  (jsdom 不要)
+import { signal, effect, memo, onCleanup, batch, createRoot } from "../src/reactive.js";
 
 let pass = 0, fail = 0;
 const log: string[] = [];
