@@ -170,9 +170,10 @@ stop(); // 配下の effect をすべて解放
 
 ## DOM API
 
-### `h(tag, props, ...children)`
+### `h(tag, props, children)`
 
 最小 hyperscript。props の値が関数なら reactive な属性・子になる。
+`children` は単一の子、または子の配列（ネストしていてもフラット化される）。
 
 ```js
 import { h } from "@kekemoto/signals/h";
@@ -180,10 +181,10 @@ import { signal } from "@kekemoto/signals";
 
 const count = signal(0);
 
-const el = h("div", { class: "box" },
+const el = h("div", { class: "box" }, [
   h("span", {}, () => `count: ${count.value}`),
   h("button", { onClick: () => count.value++ }, "+1"),
-);
+]);
 
 document.body.append(el);
 ```

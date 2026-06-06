@@ -22,7 +22,7 @@ export const tags: Record<string, TagBuilder> = new Proxy({} as Record<string, T
       const hasProps = isProps(args[0]);
       const props = hasProps ? (args[0] as Props) : {};
       const children = (hasProps ? args.slice(1) : args) as Child[];
-      return h(tag, props, ...children);
+      return h(tag, props, children);
     };
   },
 });
