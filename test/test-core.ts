@@ -1,7 +1,7 @@
 // test-core.ts — signal / effect / batch / memo / reactive の回帰テスト
 // 実行: node dist/test/test-core.js  (jsdom 不要)
 const mod = process.argv[2] || "../src/reactive.js";
-const { signal, effect, batch, memo, reactive } = await import(mod);
+const { signal, effect, batch, memo, reactive, untrack } = await import(mod);
 
 let pass = 0, fail = 0;
 const log: string[] = [];
@@ -192,6 +192,43 @@ function check(name: string, cond: unknown, detail = ""): void {
   effect(() => { b.value; runs++; });
   b.value = 1;
   check("[堅牢性] 例外後もシステム回復", runs === 2, `runs=${runs}`);
+}
+
+// 18. untrack: 依存として登録されない
+{
+  const a = signal(1), b = signal(10);
+  let runs = 0, last;
+  effect(() => {
+    runs++;
+    last = a.value + untrack(() => b.value);
+  });
+  check("untrack 初期実行", runs === 1 && last === 11);
+  b.value = 20; // b は untrack で読んでいるので effect は再実行されない
+  check("untrack b 変化で再実行しない", runs === 1, `runs=${runs}`);
+  a.value = 2;  // a は通常通り依存なので再実行される
+  check("untrack a 変化で再実行する", runs === 2 && last === 22, `runs=${runs} last=${last}`);
+}
+
+// 19. untrack: ネストした effect 内でも独立して動作する
+{
+  const s = signal(0);
+  let outer = 0, inner = 0;
+  effect(() => {
+    outer++;
+    effect(() => {
+      inner++;
+      untrack(() => s.value); // s の変化に inner effect は反応しない
+    });
+  });
+  s.value = 1;
+  check("untrack ネスト内でも依存登録しない", inner === 1, `inner=${inner}`);
+}
+
+// 20. untrack: effect の外でも正常に動作する
+{
+  const s = signal(42);
+  const val = untrack(() => s.value);
+  check("untrack effect 外でも動作する", val === 42);
 }
 
 console.log(log.join("\n"));
