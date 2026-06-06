@@ -4,6 +4,8 @@
   "description": "最小リアクティブシステム（signal / effect / memo / reactive）と DOM ユーティリティ",
   "type": "module",
   "types": "./dist/src/index.d.ts",
+  "unpkg": "./dist/signals.global.min.js",
+  "jsdelivr": "./dist/signals.global.min.js",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
@@ -32,10 +34,14 @@
   },
   "files": [
     "dist/src",
+    "dist/signals.global.js",
+    "dist/signals.global.js.map",
+    "dist/signals.global.min.js",
     "src"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:global",
+    "build:global": "esbuild dist/src/index.js --bundle --format=iife --global-name=Signals --outfile=dist/signals.global.js --sourcemap && esbuild dist/src/index.js --bundle --format=iife --global-name=Signals --minify --outfile=dist/signals.global.min.js",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node dist/test/test-core.js && node dist/test/test-owner.js",
@@ -60,6 +66,7 @@
   "devDependencies": {
     "@types/jsdom": "^28.0.3",
     "@types/node": "^25.9.2",
+    "esbuild": "^0.28.0",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3"
   }
