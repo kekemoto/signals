@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ライブラリ本体は Node >=18 をサポート。
+        # DOM テストで使う jsdom は Node >=20 が必要なので、18 では DOM だけスキップする。
+        node-version: ["18", "20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (tsc + esbuild)
+        run: npm run build
+
+      - name: Core & owner tests
+        run: |
+          node dist/test/test-core.js
+          node dist/test/test-owner.js
+
+      - name: DOM tests (jsdom; Node >= 20)
+        if: matrix.node-version != '18'
+        run: node dist/test/test-dom.js
