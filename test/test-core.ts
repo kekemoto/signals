@@ -1,11 +1,11 @@
-// test-core.js — signal / effect / batch / memo / reactive の回帰テスト
-// 実行: node test-core.js  (jsdom 不要)
-const mod = process.argv[2] || "./reactive.js";
+// test-core.ts — signal / effect / batch / memo / reactive の回帰テスト
+// 実行: node dist/test/test-core.js  (jsdom 不要)
+const mod = process.argv[2] || "../src/reactive.js";
 const { signal, effect, batch, memo, reactive } = await import(mod);
 
 let pass = 0, fail = 0;
-const log = [];
-function check(name, cond, detail = "") {
+const log: string[] = [];
+function check(name: string, cond: unknown, detail = ""): void {
   if (cond) { pass++; log.push(`  ok  ${name}`); }
   else { fail++; log.push(`FAIL  ${name}  ${detail}`); }
 }
@@ -122,7 +122,7 @@ function check(name, cond, detail = "") {
 
 // 11. reactive: キー追加・削除
 {
-  const state = reactive({});
+  const state: Record<string, number | undefined> = reactive({});
   let has, runs = 0;
   effect(() => { runs++; has = state.x; });
   state.x = 1;
@@ -178,7 +178,7 @@ function check(name, cond, detail = "") {
   effect(() => { a.value; if (a.value === 1) bRan = true; });
   let threw = false;
   try { a.value = 1; } catch { threw = true; }
-  check("[堅牢性] 例外時も後続effectが走る", bRan === true, `bRan=${bRan} threw=${threw}`);
+  check("[堅牢性] 例外時も後続effectが走る", bRan, `bRan=${bRan} threw=${threw}`);
 }
 
 // 17. flush 中に例外が出た後、システムが回復するか

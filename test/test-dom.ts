@@ -1,19 +1,19 @@
-// test-dom.js — h / tags / For / Show の DOM テスト
-// 実行: npm i jsdom してから  node test-dom.js
+// test-dom.ts — h / tags / For / Show の DOM テスト
+// 実行: npm i jsdom してから  node dist/test/test-dom.js
 import { JSDOM } from "jsdom";
 const dom = new JSDOM("<!DOCTYPE html><body></body>");
-globalThis.document = dom.window.document;
-globalThis.Node = dom.window.Node;
+(globalThis as any).document = dom.window.document;
+(globalThis as any).Node = dom.window.Node;
 
-const { signal } = await import("./reactive.js");
-const { h } = await import("./h.js");
-const { tags } = await import("./tags.js");
-const { For } = await import("./for.js");
-const { Show } = await import("./show.js");
+const { signal } = await import("../src/reactive.js");
+const { h } = await import("../src/h.js");
+const { tags } = await import("../src/tags.js");
+const { For } = await import("../src/for.js");
+const { Show } = await import("../src/show.js");
 
 let pass = 0, fail = 0;
-const log = [];
-function check(name, cond, detail = "") {
+const log: string[] = [];
+function check(name: string, cond: unknown, detail = ""): void {
   if (cond) { pass++; log.push(`  ok  ${name}`); }
   else { fail++; log.push(`FAIL  ${name}  ${detail}`); }
 }
@@ -55,9 +55,9 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   const count = signal(1);
   const el = div({ id: "box" }, span(() => count.value));
   check("tags: 要素と属性", el.tagName === "DIV" && el.id === "box");
-  check("tags: reactive 子", el.querySelector("span").textContent === "1");
+  check("tags: reactive 子", el.querySelector("span")!.textContent === "1");
   count.value = 9;
-  check("tags: 子の更新", el.querySelector("span").textContent === "9");
+  check("tags: 子の更新", el.querySelector("span")!.textContent === "9");
 }
 
 // === For ===
@@ -73,24 +73,24 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
       button({ onClick: () => n.value++ }, "+"));
   })));
   const ids = () => [...el.querySelectorAll("li")].map(x => x.getAttribute("data-id")).join("");
-  const liByID = (id) => el.querySelector(`li[data-id="${id}"]`);
+  const liByID = (id: string) => el.querySelector(`li[data-id="${id}"]`)!;
 
   check("For: 初期描画", ids() === "abc" && rendered === 3, `ids=${ids()} rendered=${rendered}`);
 
-  liByID("a").querySelector("button").click();
-  liByID("a").querySelector("button").click();
-  check("For: 行ローカル状態を作る", liByID("a").querySelector("b").textContent === "2");
+  liByID("a").querySelector("button")!.click();
+  liByID("a").querySelector("button")!.click();
+  check("For: 行ローカル状態を作る", liByID("a").querySelector("b")!.textContent === "2");
 
   const aBefore = liByID("a");
   items.value = [items.value[2], items.value[0], items.value[1]]; // → c, a, b
   check("For: 並べ替えで順序が更新", ids() === "cab", `ids=${ids()}`);
   check("For: ノードを使い回す（参照同一）", aBefore === liByID("a"));
-  check("For: 並べ替えで状態が保たれる", liByID("a").querySelector("b").textContent === "2");
+  check("For: 並べ替えで状態が保たれる", liByID("a").querySelector("b")!.textContent === "2");
   check("For: 並べ替えでは再 render しない", rendered === 3, `rendered=${rendered}`);
 
   items.value = [...items.value, { id: "d", t: "D" }]; // 追加
   check("For: 追加は1回だけ render", rendered === 4, `rendered=${rendered}`);
-  check("For: 追加で既存ノードは温存", liByID("a").querySelector("b").textContent === "2");
+  check("For: 追加で既存ノードは温存", liByID("a").querySelector("b")!.textContent === "2");
 
   items.value = items.value.filter((i) => i.id !== "a"); // 削除
   check("For: 削除で該当行だけ消える", liByID("a") === null && ids() === "cbd", `ids=${ids()}`);

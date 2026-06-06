@@ -1,6 +1,6 @@
 # @kekemoto/signals
 
-ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。
+ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
 - **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot`
 - **DOM** — `h` / `tags` / `For` / `Show`
@@ -9,6 +9,43 @@
 
 ```bash
 npm install @kekemoto/signals
+```
+
+## ブラウザ / CDN
+
+### 素の `<script>`（グローバル変数 `Signals`）
+
+ビルド不要で一番手軽。IIFE 版を読み込むと `window.Signals` にすべての API が生える。
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@kekemoto/signals"></script>
+<script>
+  const { signal, tags } = Signals;
+  const { div, button, span } = tags;
+
+  const count = signal(0);
+  document.body.append(
+    div(
+      span(() => count.value),
+      button({ onClick: () => count.value++ }, "+1"),
+    ),
+  );
+</script>
+```
+
+> jsDelivr / unpkg はパッケージ名だけで IIFE 版（`dist/signals.global.min.js`）を返す。
+> バージョン固定は `.../@kekemoto/signals@0.1.0` のように指定する。
+
+### ES モジュール（`type="module"` + `import`）
+
+モダンな書き方。CDN が ESM を配信するので `import` でそのまま使える。
+
+```html
+<script type="module">
+  import { signal, tags } from "https://esm.sh/@kekemoto/signals";
+  // jsDelivr なら: "https://cdn.jsdelivr.net/npm/@kekemoto/signals/+esm"
+  // ...
+</script>
 ```
 
 ## コア API
@@ -233,10 +270,29 @@ effect(() => {
 トップレベル（どの effect にも属さない場所）で作った effect・memo は自動では畳まれない。
 その場合は戻り値（dispose 関数）か `createRoot` で明示的に管理する。
 
+## 開発
+
+ソースは TypeScript。`src/` にライブラリ本体、`test/` にテストを置く。`tsc` で `dist/` に
+構造を保ったままコンパイルする（`src/x.ts` → `dist/src/x.js`、`test/y.ts` → `dist/test/y.js`）。
+出力は ESM（`.js`）と型定義（`.d.ts`）。続けて esbuild がブラウザ用のグローバル(IIFE)版
+（`dist/signals.global.js` / `.min.js`）を束ねる。
+
+```
+src/    reactive.ts / h.ts / tags.ts / for.ts / show.ts / index.ts
+test/   test-core.ts / test-owner.ts / test-dom.ts
+```
+
+```bash
+npm install         # devDependencies（typescript / esbuild / jsdom 等）
+npm run build       # tsc で dist/ にコンパイル → esbuild で IIFE 版を生成
+npm run build:global # IIFE 版だけ作り直す
+```
+
 ## テスト
 
 ```bash
-npm test
+npm test       # build してから core / owner テストを実行（jsdom 不要）
+npm run test:dom  # build してから DOM テストを実行（jsdom が必要）
 ```
 
 ## ライセンス

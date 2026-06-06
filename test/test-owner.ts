@@ -1,10 +1,10 @@
-// test-owner.js — owner ツリー / onCleanup / createRoot のテスト
-// 実行: node test-owner.js  (jsdom 不要)
-import { signal, effect, memo, onCleanup, batch, createRoot } from "./reactive.js";
+// test-owner.ts — owner ツリー / onCleanup / createRoot のテスト
+// 実行: node dist/test/test-owner.js  (jsdom 不要)
+import { signal, effect, memo, onCleanup, batch, createRoot } from "../src/reactive.js";
 
 let pass = 0, fail = 0;
-const log = [];
-function check(name, cond, detail = "") {
+const log: string[] = [];
+function check(name: string, cond: unknown, detail = ""): void {
   if (cond) { pass++; log.push(`  ok  ${name}`); }
   else { fail++; log.push(`FAIL  ${name}  ${detail}`); }
 }
@@ -12,7 +12,7 @@ function check(name, cond, detail = "") {
 // 1. onCleanup: 再実行の直前に前回分が走る
 {
   const s = signal(0);
-  const order = [];
+  const order: string[] = [];
   effect(() => {
     const v = s.value;
     onCleanup(() => order.push(`cleanup ${v}`));
@@ -38,7 +38,7 @@ function check(name, cond, detail = "") {
 // 3. onCleanup: setInterval 的な「再貼り直し」パターン
 {
   const id = signal("a");
-  const opened = [], closed = [];
+  const opened: string[] = [], closed: string[] = [];
   const d = effect(() => {
     const cur = id.value;
     opened.push(cur);                 // 購読を開く
@@ -139,7 +139,7 @@ function check(name, cond, detail = "") {
 {
   const s = signal(0);
   let runs = 0;
-  let disposeRoot;
+  let disposeRoot!: () => void;
   createRoot((dispose) => {
     disposeRoot = dispose;
     effect(() => { s.value; runs++; });
