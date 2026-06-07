@@ -158,6 +158,48 @@ function check(name: string, cond: unknown, detail = ""): void {
   check("[堅牢性] 例外effect内のsignal書き込みも伝播", seen === 9, `seen=${seen}`);
 }
 
+// 13b. 無限ループ保護: effect が自分の依存を書き換え続けると例外を投げる
+{
+  let threw = false;
+  try {
+    const a = signal(0);
+    effect(() => { a.value = a.value + 1; }); // 読んで書く → 収束しない
+  } catch { threw = true; }
+  check("[堅牢性] 自己ループは検出して throw", threw);
+}
+
+// 13c. 無限ループ保護: 相互に起こし合う effect も検出する
+{
+  let threw = false;
+  try {
+    const x = signal(0), y = signal(0);
+    effect(() => { x.value = y.value + 1; });
+    effect(() => { y.value = x.value + 1; });
+  } catch { threw = true; }
+  check("[堅牢性] 相互ループは検出して throw", threw);
+}
+
+// 13d. 数パスで収束する正当な自己更新は許す（clamp 風）
+{
+  let threw = false;
+  const n = signal(100);
+  try { effect(() => { if (n.value > 10) n.value = 10; }); } catch { threw = true; }
+  check("[堅牢性] 収束する自己更新は通る", !threw && n.value === 10, `threw=${threw} n=${n.value}`);
+}
+
+// 13e. flush は世代順（再帰せず、今の世代を流し切ってから次の世代）
+{
+  const a = signal(0);
+  const order: string[] = [];
+  effect(() => { order.push("E1:" + a.value); });                       // a を購読
+  effect(() => { a.value; order.push("E2"); if (a.value === 1) a.value = 2; }); // 途中で a を書く
+  order.length = 0;
+  a.value = 1;
+  // 世代順なら「E1(1) E2 | E1(2) E2」と区切られる（再帰なら割り込んで順序が乱れる）。
+  check("[堅牢性] flush は世代順（割り込まない）",
+    order.join(",") === "E1:1,E2,E1:2,E2", order.join(","));
+}
+
 // 14. store: 葉が signal になり、個別に反応する
 {
   const s = store({ user: { name: "a", age: 20 }, ok: true });

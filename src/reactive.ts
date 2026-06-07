@@ -27,7 +27,8 @@
 // 等価判定は Object.is 固定。
 //
 // 既知の限界（最小実装ゆえの割り切り）:
-//   - effect 内で自分の依存を書き換える無限ループの保護なし
+//   - effect が自分の依存を書き換え続ける無限ループは、flush が収束しないと検出して
+//     例外を投げる（FLUSH_LIMIT 世代まで）。数パスで収束する正当な自己更新は許す。
 //   - トップレベル（どの effect の中でもない場所）で作った effect / memo は親がいない
 //     ので自動では畳まれない。戻り値（effect）や read.dispose（memo）で手動解放する。
 //     これらを1か所にまとめたいなら createRoot で囲み、返ってくる dispose を1つ握れば
@@ -69,23 +70,50 @@ interface Computation extends Owner {
 let activeComputation: Computation | null = null; // いま依存を集めている effect（observer）
 let currentOwner: Owner | null = null;             // いまの所有ツリーの親（effect か createRoot の根）
 let batchDepth = 0;                                // batch() のネスト深さ
+let flushing = false;                              // いま flush 中か（再入を1つに束ねる）
 const pendingEffects = new Set<Computation>();     // バッチ終了時にまとめて走らせる effect
+const FLUSH_LIMIT = 1000;                          // 1回の flush で許す「世代」数（暴走検出の閾値）
 
-// 溜まった effect を一度ずつ実行する。
-// 1つの effect が例外を投げても残りはすべて実行し、最初の例外だけを投げ直す。
-// （pendingEffects は実行前にクリアするので、ここで途中で抜けると残りの effect が
-//   恒久的に失われる ＝ 1つのバグが無関係な effect を巻き添えにする。それを防ぐ）
+// 溜まった effect を実行する。空になるまで「世代」単位で繰り返す（while ループ）。
+//
+// 再入を1本に束ねる: effect の実行中に signal が書かれると notify→batch→flush が
+// 再び呼ばれるが、flushing 中は即 return し、積まれた分は外側の while が次の世代として
+// 拾う。これで (1) 再帰 flush によるスタック増加を防ぎ、(2) 「今の世代を全部流してから
+// 次の世代」という決定的な順序になる（割り込みでの観測が起きない）。
+//
+// 暴走検出: effect が自分の依存を書き換え続けると世代が尽きない。FLUSH_LIMIT を超えたら
+// pending を捨てて例外を投げる（無限ループでハング／スタックオーバーフローする代わりに、
+// 検出可能なエラーにして次の更新から回復できるようにする）。
+//
+// 例外耐性: 1つの effect が投げても同じ世代の残りはすべて実行し、最初の例外だけを最後に
+// 投げ直す。pending は世代ごとに実行前クリアするので、途中で抜けても無関係な effect を
+// 巻き添えにしない。
 function flush(): void {
-  const list = [...pendingEffects];
-  pendingEffects.clear();
+  if (flushing) return;                 // 既に回している → 積まれた分は外側の while が拾う
+  flushing = true;
   let firstError: unknown;
   let errored = false;
-  for (const run of list) {
-    try {
-      run();
-    } catch (err) {
-      if (!errored) { firstError = err; errored = true; }
+  let passes = 0;
+  try {
+    while (pendingEffects.size) {
+      if (++passes > FLUSH_LIMIT) {
+        pendingEffects.clear();         // 暴走したキューは捨てて回復可能にする
+        throw new Error(
+          "flush が収束しません（effect が自分の依存を書き換え続ける無限ループの可能性）",
+        );
+      }
+      const list = [...pendingEffects];
+      pendingEffects.clear();
+      for (const run of list) {
+        try {
+          run();
+        } catch (err) {
+          if (!errored) { firstError = err; errored = true; }
+        }
+      }
     }
+  } finally {
+    flushing = false;
   }
   if (errored) throw firstError;
 }
