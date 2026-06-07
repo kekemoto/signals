@@ -226,9 +226,17 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
 // 内部 effect は所有ツリーに乗るので、effect の中で作った memo は親と一緒に畳まれる。
 // トップレベルで作った memo を明示的に止めたいときだけ read.dispose() を使う。
 export function memo<T>(fn: () => T): Memo<T> {
-  const cache = signal<T | undefined>(undefined);
-  const disposeMemo = effect(() => { cache.value = fn(); }); // 依存が変わるたび計算
-  const read = (() => cache.value as T) as Memo<T>;          // 読み口（fullName() のように呼ぶ）
-  read.dispose = disposeMemo;                                // 任意: 内部 effect の解放用
+  // effect は生成時に同期実行される（下の effect(...) が返る前に1度走る）。
+  // そこで初回は計算結果でそのまま signal を作り、2回目以降だけ書き込む。
+  // こうすると cache は常に T で持てる（undefined を T に偽る as キャストが要らない）し、
+  // 初期値 undefined → 初回結果 の余計な1段差（spurious cutoff）も生じない。
+  let cache!: Signal<T>;
+  const disposeMemo = effect(() => {
+    const next = fn();                      // 依存が変わるたび計算
+    if (cache) cache.value = next;          // 2回目以降: 書き込み（Object.is で下流を間引く）
+    else cache = signal(next);              // 初回: 結果で signal を作る
+  });
+  const read = (() => cache.value) as Memo<T>; // 読み口（fullName() のように呼ぶ）
+  read.dispose = disposeMemo;                  // 任意: 内部 effect の解放用
   return read;
 }
