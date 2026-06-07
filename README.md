@@ -3,7 +3,7 @@
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
 - **コア** — `signal` / `effect` / `batch` / `memo` / `store` / `onCleanup` / `createRoot` / `isSignal`
-- **DOM** — `h` / `tags` / `For` / `Show`
+- **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
 
 ## インストール
 
@@ -176,10 +176,11 @@ stop(); // 配下の effect をすべて解放
 > なる。単一のシグナルなら `count`、複数の値を組み合わせる派生は `() => a.value + b.value`
 > のように関数で包む（`${...}` はその場で評価されるため、合成式は関数が必須）。
 
-### `h(tag, props, children)`
+### `h(tag, props?, ...children)`
 
 最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
-`children` は単一の子、または子の配列（ネストしていてもフラット化される）。
+子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、第2引数が
+プレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
 
 ```js
 import { h } from "@kekemoto/signals/h";
@@ -187,28 +188,31 @@ import { signal } from "@kekemoto/signals";
 
 const count = signal(0);
 
-const el = h("div", { class: "box" }, [
-  h("span", {}, () => `count: ${count.value}`),
+const el = h("div", { class: "box" },
+  h("span", () => `count: ${count.value}`),   // props 省略
   h("button", { onClick: () => count.value++ }, "+1"),
-]);
+);
 
 document.body.append(el);
 ```
 
 ### `tags`
 
-`h` を Proxy で包んだタグビルダー DSL。
+`h` を Proxy で包んだタグビルダー DSL。第1引数が props ならそれを属性に、以降を子にする
+（props は省略可）。**プロパティ名の camelCase は kebab-case のタグ名に変換される**ので、
+ハイフン必須の Custom Element も `tags.myCard(...)`（→ `<my-card>`）と書ける。
 
 ```js
 import { tags } from "@kekemoto/signals/tags";
 import { signal } from "@kekemoto/signals";
 
-const { div, button, span } = tags;
+const { div, button, span, myCard } = tags;
 const count = signal(0);
 
 const el = div(
   span(() => count.value),
   button({ onClick: () => count.value++ }, "+1"),
+  myCard({ title: "hi" }),                      // → <my-card title="hi">
 );
 
 document.body.append(el);
@@ -291,6 +295,67 @@ const view = div(
 );
 ```
 
+### `defineElement(name, setup, options?)`
+
+`setup` の中身を持つ Custom Element（Web Component）を登録する。
+接続時に `createRoot` を張って `setup` を1回呼び、返した DOM をマウントする。
+切断時にその root を dispose するので、`html` / `h` / `For` / `Show` が張った `effect` が孤児に
+なってリークしない。
+
+```js
+import { defineElement } from "@kekemoto/signals/element";
+import { signal } from "@kekemoto/signals";
+import { html } from "@kekemoto/signals/html";
+
+defineElement("x-counter", () => {
+  const count = signal(0);
+  return html`
+    <div>
+      <span>${count}</span>
+      <button onClick=${() => count.value++}>+1</button>
+    </div>`;
+});
+
+document.body.append(document.createElement("x-counter"));
+// または HTML に直接 <x-counter></x-counter>
+```
+
+`setup` は文脈オブジェクト `ctx` を1つ受け取る。`ctx.host`（要素自身）と `ctx.attr`
+（属性を読むヘルパー）が入っているので、必要なものを分割代入で取り出して使う。
+
+**属性 → signal**: `ctx.attr(name)` は、その属性を映す `signal` を返す
+（内部は `MutationObserver`、dispose 時に自動で外れる）。外から属性を書き換えると再描画される。
+
+```js
+defineElement("x-greet", ({ attr }) => {
+  const name = attr("name");
+  return html`<p>hello ${() => name.value ?? "?"}</p>`;
+});
+// <x-greet name="Alice"></x-greet> → "hello Alice"
+// el.setAttribute("name", "Bob")    → "hello Bob"
+```
+
+**host（要素自身）**: `ctx.host` で登録した要素そのものに触れる。イベント発火や
+プロパティ操作など、属性以外の Web Component らしい操作の入り口。
+
+```js
+defineElement("x-toggle", ({ host }) => {
+  const open = signal(false);
+  const toggle = () => {
+    open.value = !open.value;
+    host.dispatchEvent(new CustomEvent("toggle", { detail: open.value })); // 外向きに通知
+  };
+  return html`<button onClick=${toggle}>${() => (open.value ? "閉じる" : "開く")}</button>`;
+});
+```
+
+描画先は host 直下（light DOM）。
+
+> **再接続の挙動**: 切断（`disconnectedCallback`）では即 dispose せず、次のマイクロタスクまで
+> 待ってから「まだ未接続なら本当に切り離された」と判断して root を dispose する。これにより
+> DOM 内での**移動**（付け替え）は disconnect→connect が連続するだけなので状態が保たれる。
+> 本当に切り離してから別の場所に再接続した場合は `setup` を走らせ直す（ローカル状態はリセット）。
+
 ## 所有ツリー（自動 dispose）
 
 `effect` / `memo` を別の `effect` の中で作ると、外側の effect の「子」として自動登録される。
@@ -316,7 +381,7 @@ effect(() => {
 （`dist/signals.global.js` / `.min.js`）を束ねる。
 
 ```
-src/    reactive.ts / store.ts / h.ts / tags.ts / html.ts / for.ts / show.ts / index.ts
+src/    reactive.ts / store.ts / h.ts / tags.ts / html.ts / for.ts / show.ts / element.ts / index.ts
 test/   test-core.ts / test-owner.ts / test-dom.ts
 ```
 

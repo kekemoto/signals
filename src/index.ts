@@ -15,3 +15,9 @@ export { tags, type TagBuilder } from "./tags.js";
 export { html } from "./html.js";
 export { For } from "./for.js";
 export { Show } from "./show.js";
+export {
+  defineElement,
+  type DefineOptions,
+  type SetupContext,
+  type Setup,
+} from "./element.js";

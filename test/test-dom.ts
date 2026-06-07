@@ -1,9 +1,12 @@
-// test-dom.ts — h / tags / For / Show の DOM テスト
+// test-dom.ts — h / tags / html / For / Show / defineElement の DOM テスト
 // 実行: npm i jsdom してから  node dist/test/test-dom.js
 import { JSDOM } from "jsdom";
 const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).document = dom.window.document;
 (globalThis as any).Node = dom.window.Node;
+(globalThis as any).HTMLElement = dom.window.HTMLElement;
+(globalThis as any).customElements = dom.window.customElements;
+(globalThis as any).MutationObserver = dom.window.MutationObserver;
 
 const { signal } = await import("../src/reactive.js");
 const { h } = await import("../src/h.js");
@@ -11,6 +14,7 @@ const { tags } = await import("../src/tags.js");
 const { html } = await import("../src/html.js");
 const { For } = await import("../src/for.js");
 const { Show } = await import("../src/show.js");
+const { defineElement } = await import("../src/element.js");
 
 let pass = 0, fail = 0;
 const log: string[] = [];
@@ -50,6 +54,19 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("h: 構築は1回（穴だけ更新）", builds === 1 && el.textContent === "5", `builds=${builds}`);
 }
 
+// === h: props 省略（第1引数から子を直接渡せる）===
+{
+  const count = signal(0);
+  const el = h("div", () => count.value);       // props を省略
+  check("h: props 省略で関数を子に", el.tagName === "DIV" && el.textContent === "0");
+  count.value = 4;
+  check("h: props 省略の子も reactive", el.textContent === "4");
+}
+{
+  const el = h("ul", h("li", "a"), h("li", "b")); // props 省略 + 複数子（可変長）
+  check("h: props 省略で複数子を可変長で渡せる", el.querySelectorAll("li").length === 2);
+}
+
 // === tags ===
 {
   const { div, span } = tags;
@@ -59,6 +76,14 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("tags: reactive 子", el.querySelector("span")!.textContent === "1");
   count.value = 9;
   check("tags: 子の更新", el.querySelector("span")!.textContent === "9");
+}
+
+// === tags: camelCase → kebab-case 変換（Custom Element 用）===
+{
+  const el = tags.myCard({ id: "c" }, "x");
+  check("tags: myCard → my-card", el.tagName.toLowerCase() === "my-card");
+  check("tags: kebab 要素にも props/子が効く", el.id === "c" && el.textContent === "x");
+  check("tags: 単語1つはそのまま", tags.div().tagName === "DIV");
 }
 
 // === html (tagged template literal) ===
@@ -243,6 +268,125 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   const el = mount();
   el.append(div(Show(() => visible.value, () => span({ class: "yes" }, "見える"), null)));
   check("Show: false かつ fallback=null で何も表示しない", !el.querySelector(".yes"));
+}
+
+// MutationObserver は jsdom でも非同期配信なので、属性変化の反映を待つ用。
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+// === defineElement: 基本（描画 + 内部 signal で reactive）===
+{
+  const { div, span, button } = tags;
+  defineElement("x-counter", () => {
+    const count = signal(0);
+    return div(span(() => count.value), button({ onClick: () => count.value++ }, "+1"));
+  });
+  const el = document.createElement("x-counter");
+  document.body.append(el);
+  check("defineElement: connected で描画", el.querySelector("span")?.textContent === "0");
+  el.querySelector("button")!.click();
+  check("defineElement: 内部 signal で再描画", el.querySelector("span")?.textContent === "1");
+}
+
+// === defineElement: 本当に切断されたら root を畳む（遅延 dispose）===
+{
+  const ext = signal(0);
+  let runs = 0;
+  defineElement("x-life", () => {
+    const { div } = tags;
+    return div(() => { runs++; return ext.value; });
+  });
+
+  const el = document.createElement("x-life");
+  document.body.append(el);
+  check("defineElement: マウント時に effect が1回走る", runs === 1, `runs=${runs}`);
+  ext.value = 1;
+  check("defineElement: 接続中は外部 signal に反応", runs === 2 && el.querySelector("div")?.textContent === "1");
+
+  el.remove();                       // disconnected → 次の microtask で dispose
+  await tick();
+  ext.value = 2;
+  check("defineElement: 切断確定後は effect が走らない（dispose 済み）", runs === 2, `runs=${runs}`);
+}
+
+// === defineElement: onCleanup が切断確定で呼ばれる ===
+{
+  const { onCleanup } = await import("../src/reactive.js");
+  const state = { cleaned: false };  // オブジェクト経由にして TS の literal 絞り込みを避ける
+  defineElement("x-cleanup", () => {
+    const { div } = tags;
+    onCleanup(() => { state.cleaned = true; });
+    return div("hi");
+  });
+  const el = document.createElement("x-cleanup");
+  document.body.append(el);
+  check("defineElement: 接続中は onCleanup 未発火", state.cleaned === false);
+  el.remove();
+  await tick();                      // 遅延 dispose を確定させる
+  check("defineElement: 切断確定で onCleanup 発火", state.cleaned === true);
+}
+
+// === defineElement: ctx.attr で属性 → signal ===
+{
+  const { p } = tags;
+  defineElement("x-greet", ({ attr }) => {
+    const name = attr("name");
+    return p(() => `hello ${name.value ?? "?"}`);
+  });
+  const el = document.createElement("x-greet");
+  el.setAttribute("name", "Alice");
+  document.body.append(el);
+  check("defineElement: attr 初期値", el.querySelector("p")?.textContent === "hello Alice");
+  el.setAttribute("name", "Bob");
+  await tick();                      // MutationObserver の配信を待つ
+  check("defineElement: attr 変更で再描画", el.querySelector("p")?.textContent === "hello Bob",
+    `text=${el.querySelector("p")?.textContent}`);
+  el.removeAttribute("name");
+  await tick();
+  check("defineElement: attr 削除で null", el.querySelector("p")?.textContent === "hello ?");
+}
+
+// === defineElement: ctx.host で要素自身に触れる ===
+{
+  const { div } = tags;
+  defineElement("x-host", ({ host }) => {
+    host.classList.add("ready");          // host 自身を操作
+    return div(host.getAttribute("data-x") ?? "");
+  });
+  const el = document.createElement("x-host");
+  el.setAttribute("data-x", "yo");
+  document.body.append(el);
+  check("defineElement: ctx.host で要素を操作", el.classList.contains("ready"));
+  check("defineElement: ctx.host から属性を読む", el.querySelector("div")?.textContent === "yo");
+}
+
+// === defineElement: 移動（同期 remove→append）では setup を作り直さず状態を保つ ===
+{
+  let setups = 0;
+  defineElement("x-move", () => { setups++; const { div } = tags; return div("m"); });
+  const a = mount(), b = mount();
+  const el = document.createElement("x-move");
+  a.append(el);
+  check("defineElement: 初回 setup", setups === 1);
+
+  b.append(el);                      // 別の親へ移動（disconnect→connect が連続）
+  await tick();                      // 遅延 dispose のタイミングを通過させる
+  check("defineElement: 移動では setup を作り直さない", setups === 1, `setups=${setups}`);
+  check("defineElement: 移動後も描画される", el.querySelector("div")?.textContent === "m");
+}
+
+// === defineElement: 本当に切断してからの再接続は setup し直す ===
+{
+  let setups = 0;
+  defineElement("x-reinit", () => { setups++; const { div } = tags; return div("r"); });
+  const el = document.createElement("x-reinit");
+  document.body.append(el);
+  check("defineElement: 初回 setup（reinit）", setups === 1);
+
+  el.remove();
+  await tick();                      // 切断を確定させて dispose
+  document.body.append(el);          // 改めて接続
+  check("defineElement: 切断確定後の再接続で setup し直す", setups === 2, `setups=${setups}`);
+  check("defineElement: 再接続後も描画される", el.querySelector("div")?.textContent === "r");
 }
 
 // === For / Show: signal を直接渡す（() => sig.value のラップ不要）===
