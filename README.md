@@ -242,9 +242,10 @@ document.body.append(el);
 > 構造そのものは作り直さず、穴だけを `effect` で更新する（`h` と同じ方針）。
 > リスト・条件表示は `For` / `Show` を子の穴に置いて組み合わせる。
 
-### `For(itemsFn, keyFn, render)`
+### `For(items, keyFn, render)`
 
 key 付きリスト差分描画。存在し続ける行の `effect` は畳まれない。
+第1引数は**配列のシグナルそのもの**でも、配列を返す関数（`() => items.value`）でもよい。
 
 ```js
 import { For } from "@kekemoto/signals/for";
@@ -260,16 +261,17 @@ const items = signal([
 
 const list = ul(
   For(
-    () => items.value,
+    items,                  // signal を直接渡せる（() => items.value でも可）
     item => item.id,
     item => li(item.text),
   ),
 );
 ```
 
-### `Show(whenFn, render, fallback?)`
+### `Show(when, render, fallback?)`
 
 条件表示。真偽が切り替わったときだけ中身を作り直す（内部の `effect` も dispose される）。
+第1引数は**シグナルそのもの**でも、真偽を返す関数（`() => loggedIn.value`）でもよい。
 
 ```js
 import { Show } from "@kekemoto/signals/show";
@@ -281,7 +283,7 @@ const loggedIn = signal(false);
 
 const view = div(
   Show(
-    () => loggedIn.value,
+    loggedIn,               // signal を直接渡せる（() => loggedIn.value でも可）
     () => p("ようこそ"),
     () => p("ログインしてください"),
   ),

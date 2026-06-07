@@ -245,6 +245,26 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("Show: false かつ fallback=null で何も表示しない", !el.querySelector(".yes"));
 }
 
+// === For / Show: signal を直接渡す（() => sig.value のラップ不要）===
+{
+  const { ul, li } = tags;
+  const items = signal([{ id: "a" }, { id: "b" }]);
+  const el = mount();
+  el.append(ul(For(items, (i: { id: string }) => i.id, (item: { id: string }) => li({ "data-id": item.id }, item.id))));
+  check("For: signal 直渡しで描画", el.querySelectorAll("li").length === 2);
+  items.value = [...items.value, { id: "c" }];
+  check("For: signal 直渡しで更新", el.querySelectorAll("li").length === 3);
+}
+{
+  const { div, span } = tags;
+  const visible = signal(true);
+  const el = mount();
+  el.append(div(Show(visible, () => span({ class: "yes" }, "見える"), () => span({ class: "no" }, "隠れた"))));
+  check("Show: signal 直渡し true で本体", !!el.querySelector(".yes"));
+  visible.value = false;
+  check("Show: signal 直渡し false で fallback", !el.querySelector(".yes") && !!el.querySelector(".no"));
+}
+
 console.log(log.join("\n"));
 console.log(`\npass=${pass} fail=${fail}`);
 process.exit(fail > 0 ? 1 : 0);

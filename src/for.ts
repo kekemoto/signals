@@ -5,7 +5,7 @@
 //   - 行は createRoot で独立スコープにするので、リスト全体が再評価されても
 //     生き残る行の effect は畳まれない（＝行ごとの状態が保たれる）
 //   - 消えた key の行だけ dispose して DOM から除去する
-import { effect, createRoot } from "./reactive.js";
+import { effect, createRoot, isSignal, type Signal } from "./reactive.js";
 
 interface Entry {
   node: Node;
@@ -13,10 +13,11 @@ interface Entry {
 }
 
 export function For<T>(
-  itemsFn: () => T[],
+  items: (() => T[]) | Signal<T[]>,
   keyFn: (item: T) => unknown,
   render: (item: T) => Node,
 ): DocumentFragment {
+  const itemsFn = isSignal(items) ? () => items.value : items; // signal なら .value を読む関数に
   const start = document.createComment("for");
   const end = document.createComment("/for");
   const frag = document.createDocumentFragment();
