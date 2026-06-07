@@ -65,12 +65,11 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
         if (name.startsWith("on") && typeof v === "function") {
           el.removeAttribute(name);
           el.addEventListener(name.slice(2), v as EventListener); // onclick → click
-        } else if (typeof v === "function") {
-          effect(() => setAttr(el, name, (v as () => unknown)()));
-        } else if (isSignal(v)) {
-          effect(() => setAttr(el, name, v.value)); // シグナル直接
+        } else if (name.startsWith(".")) {
+          el.removeAttribute(name);               // ".items"=${arr} → el.items = arr（プロパティ書き込み）
+          bind(v, (val) => setProp(el, name.slice(1), val));
         } else {
-          setAttr(el, name, v);                   // null/false/真偽の意味を保つ
+          bind(v, (val) => setAttr(el, name, val)); // 属性（null/false/真偽の意味を保つ）
         }
       } else if (ATTR_RE.test(value)) {           // "btn ${...}" のような部分埋め込み
         ATTR_RE.lastIndex = 0;
@@ -133,9 +132,22 @@ function toNode(child: unknown): Node {
   return document.createTextNode(String(child));
 }
 
+/** 丸ごとの穴を適用する。関数 / シグナルなら effect を張って reactive に、そうでなければ一度だけ適用する。 */
+function bind(v: unknown, apply: (val: unknown) => void): void {
+  if (typeof v === "function") effect(() => apply((v as () => unknown)()));
+  else if (isSignal(v)) effect(() => apply(v.value));
+  else apply(v);
+}
+
 function setAttr(el: Element, key: string, v: unknown): void {
   if (v == null || v === false) el.removeAttribute(key);
   else el.setAttribute(key, v === true ? "" : String(v));
+}
+
+/** プロパティ書き込み（el.foo = v）。属性と違い文字列化されないのでオブジェクト/配列をそのまま渡せる。
+ *  注意: HTML パーサが属性名を小文字化するため、`.fooBar` ではなく小文字のプロパティ名を使う。 */
+function setProp(el: Element, key: string, v: unknown): void {
+  (el as unknown as Record<string, unknown>)[key] = v;
 }
 
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */

@@ -7,10 +7,11 @@ import { effect, isSignal, type Signal } from "./reactive.js";
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
 type Renderable = string | number | boolean | null | undefined;
 
-/** props の値。関数 / シグナルなら reactive な属性、`onXxx` の関数はイベントハンドラ。 */
-export type PropValue = Renderable | EventListenerOrEventListenerObject | (() => Renderable) | Signal<Renderable>;
+/** props の値。関数 / シグナルなら reactive、`onXxx` の関数はイベントハンドラ。
+ *  `.`プレフィックスのキーはプロパティ書き込みなので、オブジェクト/配列など任意の値を取れる。 */
+export type PropValue = Renderable | EventListenerOrEventListenerObject | (() => unknown) | Signal<unknown> | object;
 
-/** h(tag, props, ...) の props。`onXxx` はイベント、関数 / シグナルは reactive 属性。 */
+/** h(tag, props, ...) の props。`onXxx` はイベント、`.foo` はプロパティ、関数 / シグナルは reactive。 */
 export type Props = Record<string, PropValue>;
 
 /** h(tag, props, child) に渡せる子。関数 / シグナルは reactive なテキスト、配列はフラット化される。 */
@@ -38,12 +39,10 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
     const v = (props as Props)[key];
     if (key.startsWith("on") && typeof v === "function") {
       el.addEventListener(key.slice(2).toLowerCase(), v as EventListener); // onClick → click
-    } else if (typeof v === "function") {
-      effect(() => setAttr(el, key, (v as () => Renderable)()));            // reactive な属性（関数）
-    } else if (isSignal(v)) {
-      effect(() => setAttr(el, key, v.value as Renderable));               // reactive な属性（シグナル直接）
+    } else if (key.startsWith(".")) {
+      bind(v, (val) => setProp(el, key.slice(1), val));                     // ".items" → el.items = val
     } else {
-      setAttr(el, key, v);                                                  // 静的な属性
+      bind(v, (val) => setAttr(el, key, val as Renderable));               // 属性
     }
   }
 
@@ -52,9 +51,21 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
   return el;
 }
 
+/** 値を適用する。関数 / シグナルなら effect を張って reactive に、そうでなければ一度だけ適用する。 */
+function bind(v: PropValue, apply: (val: unknown) => void): void {
+  if (typeof v === "function") effect(() => apply((v as () => unknown)()));
+  else if (isSignal(v)) effect(() => apply(v.value));
+  else apply(v);
+}
+
 function setAttr(el: Element, key: string, v: unknown): void {
   if (v == null || v === false) el.removeAttribute(key);
   else el.setAttribute(key, v === true ? "" : String(v));
+}
+
+/** プロパティ書き込み（el.foo = v）。属性と違い文字列化されないのでオブジェクト/配列をそのまま渡せる。 */
+function setProp(el: Element, key: string, v: unknown): void {
+  (el as unknown as Record<string, unknown>)[key] = v;
 }
 
 function appendChild(el: Element, child: Child): void {

@@ -54,6 +54,29 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("h: 構築は1回（穴だけ更新）", builds === 1 && el.textContent === "5", `builds=${builds}`);
 }
 
+// === h: プロパティ束縛（.foo はオブジェクト/配列をそのまま el.foo に書き込む）===
+{
+  const arr = [{ name: "a" }, { name: "b" }];
+  const el = h("my-list", { ".items": arr });
+  check("h: .prop でオブジェクト/配列をそのまま渡す", (el as any).items === arr);
+  check("h: .prop は属性化しない", !el.hasAttribute("items"));
+}
+{
+  const items = signal<number[]>([1, 2]);
+  const el = h("my-list", { ".items": items });        // シグナル直渡し
+  check("h: .prop に signal 直渡し 初期", (el as any).items === items.value);
+  const next = [1, 2, 3];
+  items.value = next;
+  check("h: .prop は signal で reactive に更新", (el as any).items === next);
+}
+{
+  const n = signal(0);
+  const el = h("my-el", { ".value": () => n.value * 2 }); // 関数で reactive
+  check("h: .prop に関数 初期", (el as any).value === 0);
+  n.value = 5;
+  check("h: .prop は関数で reactive に更新", (el as any).value === 10);
+}
+
 // === h: props 省略（第1引数から子を直接渡せる）===
 {
   const count = signal(0);
@@ -127,6 +150,22 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   const el = ((): HTMLElement => { builds++; return html`<span>${() => count.value}</span>` as HTMLElement; })();
   count.value = 5;
   check("html: 構築は1回（穴だけ更新）", builds === 1 && el.textContent === "5", `builds=${builds}`);
+}
+
+// === html: プロパティ束縛（.foo=${...} はオブジェクト/配列をそのまま el.foo に書き込む）===
+{
+  const arr = [{ name: "a" }, { name: "b" }];
+  const el = html`<my-list .items=${arr}></my-list>` as HTMLElement;
+  check("html: .prop でオブジェクト/配列をそのまま渡す", (el as any).items === arr);
+  check("html: .prop は属性化しない", !el.hasAttribute(".items") && !el.hasAttribute("items"));
+}
+{
+  const items = signal<number[]>([1, 2]);
+  const el = html`<my-list .items=${items}></my-list>` as HTMLElement; // シグナル直渡し
+  check("html: .prop に signal 直渡し 初期", (el as any).items === items.value);
+  const next = [1, 2, 3];
+  items.value = next;
+  check("html: .prop は signal で reactive に更新", (el as any).items === next);
 }
 {
   // 子の穴に Node / 配列 / ネストした html を差し込める

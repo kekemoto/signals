@@ -196,6 +196,15 @@ const el = h("div", { class: "box" },
 document.body.append(el);
 ```
 
+**プロパティ束縛**: キーに `.` を付けると `setAttribute` ではなくプロパティ書き込み
+（`el.foo = v`）になる。属性は文字列化されるため、オブジェクトや配列をそのまま
+Custom Element に渡したいときに使う（`.` 付きの値も関数 / シグナルなら reactive）。
+
+```js
+h("my-list", { ".items": [{ name: "a" }, { name: "b" }] }); // el.items = [...]（文字列化されない）
+h("my-list", { ".items": itemsSignal });                    // signal で reactive に更新
+```
+
 ### `tags`
 
 `h` を Proxy で包んだタグビルダー DSL。第1引数が props ならそれを属性に、以降を子にする
@@ -242,6 +251,8 @@ document.body.append(el);
 - 関数 / シグナルの穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
 - 属性は丸ごと（`class=${fn}`）でも部分（`class="box ${fn}"`）でも穴を置ける。
 - 子の穴には文字列・数値のほか、`Node`・配列・ネストした `` html`...` `` を差し込める。
+- `h` と同じく `.foo=${v}` でプロパティ書き込みになる（`<my-list .items=${arr}>`）。
+  HTML パーサが属性名を小文字化するため、プロパティ名は小文字で書く。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
 
 > 構造そのものは作り直さず、穴だけを `effect` で更新する（`h` と同じ方針）。
