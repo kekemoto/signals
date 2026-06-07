@@ -8,6 +8,7 @@ const dom = new JSDOM("<!DOCTYPE html><body></body>");
 const { signal } = await import("../src/reactive.js");
 const { h } = await import("../src/h.js");
 const { tags } = await import("../src/tags.js");
+const { html } = await import("../src/html.js");
 const { For } = await import("../src/for.js");
 const { Show } = await import("../src/show.js");
 
@@ -58,6 +59,108 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("tags: reactive 子", el.querySelector("span")!.textContent === "1");
   count.value = 9;
   check("tags: 子の更新", el.querySelector("span")!.textContent === "9");
+}
+
+// === html (tagged template literal) ===
+{
+  const count = signal(0);
+  const el = html`<span>count: ${() => count.value}</span>` as HTMLElement;
+  check("html: 単一ルート要素を返す", el.tagName === "SPAN");
+  check("html: reactive 子の初期値", el.textContent === "count: 0");
+  count.value = 7;
+  check("html: reactive 子の更新", el.textContent === "count: 7");
+}
+{
+  const count = signal(0);
+  const el = html`<button onClick=${() => count.value++}>+1</button>` as HTMLElement;
+  check("html: onClick 属性を取り除く", !el.hasAttribute("onclick"));
+  el.click(); el.click();
+  check("html: onClick が発火する", count.value === 2, `count=${count.value}`);
+}
+{
+  const on = signal(false);
+  const el = html`<div class=${() => (on.value ? "active" : "idle")}></div>` as HTMLElement;
+  check("html: reactive 属性 初期", el.getAttribute("class") === "idle");
+  on.value = true;
+  check("html: reactive 属性 更新", el.getAttribute("class") === "active");
+}
+{
+  const on = signal(false);
+  const el = html`<div class="box ${() => (on.value ? "on" : "off")}"></div>` as HTMLElement;
+  check("html: 部分埋め込み 属性 初期", el.getAttribute("class") === "box off");
+  on.value = true;
+  check("html: 部分埋め込み 属性 更新", el.getAttribute("class") === "box on");
+}
+{
+  const el = html`<input value=${"hello"} disabled=${false}>` as HTMLElement;
+  check("html: 静的な穴で属性を設定", el.getAttribute("value") === "hello");
+  check("html: false の穴で属性を外す", !el.hasAttribute("disabled"));
+}
+{
+  const count = signal(0);
+  let builds = 0;
+  const el = ((): HTMLElement => { builds++; return html`<span>${() => count.value}</span>` as HTMLElement; })();
+  count.value = 5;
+  check("html: 構築は1回（穴だけ更新）", builds === 1 && el.textContent === "5", `builds=${builds}`);
+}
+{
+  // 子の穴に Node / 配列 / ネストした html を差し込める
+  const inner = html`<b>x</b>`;
+  const el = html`<div>${inner}${[h("i", {}, "a"), h("i", {}, "b")]}</div>` as HTMLElement;
+  check("html: Node の穴を差し込む", el.querySelector("b")?.textContent === "x");
+  check("html: 配列の穴を並べる", el.querySelectorAll("i").length === 2);
+}
+{
+  // 複数ルート（空白を挟む）は DocumentFragment を返す
+  const frag = html`<p>a</p><p>b</p>`;
+  const host = mount();
+  host.append(frag);
+  check("html: 複数ルートは fragment", host.querySelectorAll("p").length === 2);
+}
+
+// === signal を直接渡す（関数ラップ不要）===
+{
+  const count = signal(0);
+  // h: 子・属性ともにシグナルそのものを渡せる
+  const el = h("div", { "data-n": count }, count);
+  check("h: signal を子に直接", el.textContent === "0");
+  check("h: signal を属性に直接", el.getAttribute("data-n") === "0");
+  count.value = 4;
+  check("h: signal 子の更新", el.textContent === "4");
+  check("h: signal 属性の更新", el.getAttribute("data-n") === "4");
+}
+{
+  const { span } = tags;
+  const count = signal(1);
+  const el = span(count) as HTMLElement;       // 位置引数の signal は props でなく子
+  check("tags: signal を子に直接", el.tagName === "SPAN" && el.textContent === "1");
+  count.value = 8;
+  check("tags: signal 子の更新", el.textContent === "8");
+}
+{
+  const count = signal(0);
+  const color = signal("red");
+  const el = html`<div class=${color}>${count}</div>` as HTMLElement;
+  check("html: signal を子に直接", el.textContent === "0");
+  check("html: signal を属性に直接", el.getAttribute("class") === "red");
+  count.value = 3; color.value = "blue";
+  check("html: signal 子の更新", el.textContent === "3");
+  check("html: signal 属性の更新", el.getAttribute("class") === "blue");
+}
+{
+  // 丸ごとの属性穴では false / null は h と同じく属性を外す（真偽属性の意味）
+  const on = signal<boolean>(false);
+  const el = html`<input disabled=${on}>` as HTMLElement;
+  check("html: signal=false で属性を外す", !el.hasAttribute("disabled"));
+  on.value = true;
+  check("html: signal=true で属性を付ける", el.getAttribute("disabled") === "");
+}
+{
+  const cls = signal("a");
+  const el = html`<div class="box ${cls}"></div>` as HTMLElement;
+  check("html: 部分埋め込みに signal 初期", el.getAttribute("class") === "box a");
+  cls.value = "b";
+  check("html: 部分埋め込みに signal 更新", el.getAttribute("class") === "box b");
 }
 
 // === For ===
@@ -140,6 +243,26 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   const el = mount();
   el.append(div(Show(() => visible.value, () => span({ class: "yes" }, "見える"), null)));
   check("Show: false かつ fallback=null で何も表示しない", !el.querySelector(".yes"));
+}
+
+// === For / Show: signal を直接渡す（() => sig.value のラップ不要）===
+{
+  const { ul, li } = tags;
+  const items = signal([{ id: "a" }, { id: "b" }]);
+  const el = mount();
+  el.append(ul(For(items, (i: { id: string }) => i.id, (item: { id: string }) => li({ "data-id": item.id }, item.id))));
+  check("For: signal 直渡しで描画", el.querySelectorAll("li").length === 2);
+  items.value = [...items.value, { id: "c" }];
+  check("For: signal 直渡しで更新", el.querySelectorAll("li").length === 3);
+}
+{
+  const { div, span } = tags;
+  const visible = signal(true);
+  const el = mount();
+  el.append(div(Show(visible, () => span({ class: "yes" }, "見える"), () => span({ class: "no" }, "隠れた"))));
+  check("Show: signal 直渡し true で本体", !!el.querySelector(".yes"));
+  visible.value = false;
+  check("Show: signal 直渡し false で fallback", !el.querySelector(".yes") && !!el.querySelector(".no"));
 }
 
 console.log(log.join("\n"));

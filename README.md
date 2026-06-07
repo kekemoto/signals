@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot`
+- **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot` / `isSignal`
 - **DOM** — `h` / `tags` / `For` / `Show`
 
 ## インストール
@@ -170,9 +170,14 @@ stop(); // 配下の effect をすべて解放
 
 ## DOM API
 
+> **reactive な穴の渡し方** — `h` / `tags` / `` html`...` `` はいずれも、穴に
+> **関数**（`() => count.value`）か **シグナルそのもの**（`count`）を渡すと reactive に
+> なる。単一のシグナルなら `count`、複数の値を組み合わせる派生は `() => a.value + b.value`
+> のように関数で包む（`${...}` はその場で評価されるため、合成式は関数が必須）。
+
 ### `h(tag, props, children)`
 
-最小 hyperscript。props の値が関数なら reactive な属性・子になる。
+最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
 `children` は単一の子、または子の配列（ネストしていてもフラット化される）。
 
 ```js
@@ -208,9 +213,39 @@ const el = div(
 document.body.append(el);
 ```
 
-### `For(itemsFn, keyFn, render)`
+### `` html`...` ``
+
+タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
+静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
+関数 / シグナルの穴は reactive（属性・子テキスト）になり、`onXxx=${fn}` はイベントになる。
+
+```js
+import { html } from "@kekemoto/signals/html";
+import { signal } from "@kekemoto/signals";
+
+const count = signal(0);
+
+const el = html`
+  <div class="box">
+    <span>count: ${count}</span>
+    <button onClick=${() => count.value++}>+1</button>
+  </div>`;
+
+document.body.append(el);
+```
+
+- 関数 / シグナルの穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
+- 属性は丸ごと（`class=${fn}`）でも部分（`class="box ${fn}"`）でも穴を置ける。
+- 子の穴には文字列・数値のほか、`Node`・配列・ネストした `` html`...` `` を差し込める。
+- ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
+
+> 構造そのものは作り直さず、穴だけを `effect` で更新する（`h` と同じ方針）。
+> リスト・条件表示は `For` / `Show` を子の穴に置いて組み合わせる。
+
+### `For(items, keyFn, render)`
 
 key 付きリスト差分描画。存在し続ける行の `effect` は畳まれない。
+第1引数は**配列のシグナルそのもの**でも、配列を返す関数（`() => items.value`）でもよい。
 
 ```js
 import { For } from "@kekemoto/signals/for";
@@ -226,16 +261,17 @@ const items = signal([
 
 const list = ul(
   For(
-    () => items.value,
+    items,                  // signal を直接渡せる（() => items.value でも可）
     item => item.id,
     item => li(item.text),
   ),
 );
 ```
 
-### `Show(whenFn, render, fallback?)`
+### `Show(when, render, fallback?)`
 
 条件表示。真偽が切り替わったときだけ中身を作り直す（内部の `effect` も dispose される）。
+第1引数は**シグナルそのもの**でも、真偽を返す関数（`() => loggedIn.value`）でもよい。
 
 ```js
 import { Show } from "@kekemoto/signals/show";
@@ -247,7 +283,7 @@ const loggedIn = signal(false);
 
 const view = div(
   Show(
-    () => loggedIn.value,
+    loggedIn,               // signal を直接渡せる（() => loggedIn.value でも可）
     () => p("ようこそ"),
     () => p("ログインしてください"),
   ),
@@ -279,7 +315,7 @@ effect(() => {
 （`dist/signals.global.js` / `.min.js`）を束ねる。
 
 ```
-src/    reactive.ts / h.ts / tags.ts / for.ts / show.ts / index.ts
+src/    reactive.ts / h.ts / tags.ts / html.ts / for.ts / show.ts / index.ts
 test/   test-core.ts / test-owner.ts / test-dom.ts
 ```
 

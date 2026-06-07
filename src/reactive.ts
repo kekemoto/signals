@@ -158,6 +158,13 @@ export function signal<T>(initial: T): Signal<T> {
   };
 }
 
+// signal() が返すセルかどうかを判定する。h / tags / html で「関数の穴」と同じく
+// reactive に扱うため、シグナルを直接渡せる（${count} のように .value を省ける）。
+// peek を持つことを目印にする（reactive() の proxy は peek を持たないので false）。
+export function isSignal(x: unknown): x is Signal<unknown> {
+  return x != null && typeof x === "object" && typeof (x as Signal<unknown>).peek === "function";
+}
+
 // --- effect -----------------------------------------------------------------
 // 依存が変わると再実行される副作用。戻り値を呼ぶと購読解除（dispose）。
 // run() 自身が「実行中の effect」の正体。依存(deps)・子(children)・後始末(cleanups)・
