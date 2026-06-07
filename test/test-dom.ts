@@ -4,12 +4,16 @@ import { JSDOM } from "jsdom";
 const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).document = dom.window.document;
 (globalThis as any).Node = dom.window.Node;
+(globalThis as any).HTMLElement = dom.window.HTMLElement;
+(globalThis as any).customElements = dom.window.customElements;
+(globalThis as any).MutationObserver = dom.window.MutationObserver;
 
 const { signal } = await import("../src/reactive.js");
 const { h } = await import("../src/h.js");
 const { tags } = await import("../src/tags.js");
 const { For } = await import("../src/for.js");
 const { Show } = await import("../src/show.js");
+const { defineElement } = await import("../src/element.js");
 
 let pass = 0, fail = 0;
 const log: string[] = [];
@@ -140,6 +144,102 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   const el = mount();
   el.append(div(Show(() => visible.value, () => span({ class: "yes" }, "見える"), null)));
   check("Show: false かつ fallback=null で何も表示しない", !el.querySelector(".yes"));
+}
+
+// MutationObserver は jsdom でも非同期配信なので、属性変化の反映を待つ用。
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+// === defineElement: 基本（描画 + 内部 signal で reactive）===
+{
+  const { div, span, button } = tags;
+  defineElement("x-counter", () => {
+    const count = signal(0);
+    return div(span(() => count.value), button({ onClick: () => count.value++ }, "+1"));
+  });
+  const el = document.createElement("x-counter");
+  document.body.append(el);
+  check("defineElement: connected で描画", el.querySelector("span")?.textContent === "0");
+  el.querySelector("button")!.click();
+  check("defineElement: 内部 signal で再描画", el.querySelector("span")?.textContent === "1");
+}
+
+// === defineElement: disconnected で root を畳む（effect / onCleanup を解放）===
+{
+  const ext = signal(0);
+  let runs = 0;
+  defineElement("x-life", () => {
+    const { div } = tags;
+    return div(() => { runs++; return ext.value; });
+  });
+
+  const el = document.createElement("x-life");
+  document.body.append(el);
+  check("defineElement: マウント時に effect が1回走る", runs === 1, `runs=${runs}`);
+  ext.value = 1;
+  check("defineElement: 接続中は外部 signal に反応", runs === 2 && el.querySelector("div")?.textContent === "1");
+
+  el.remove();                       // disconnected → dispose
+  ext.value = 2;
+  check("defineElement: 切断後は effect が走らない（dispose 済み）", runs === 2, `runs=${runs}`);
+}
+
+// === defineElement: onCleanup が disconnected で呼ばれる ===
+{
+  const { onCleanup } = await import("../src/reactive.js");
+  const state = { cleaned: false };  // オブジェクト経由にして TS の literal 絞り込みを避ける
+  defineElement("x-cleanup", () => {
+    const { div } = tags;
+    onCleanup(() => { state.cleaned = true; });
+    return div("hi");
+  });
+  const el = document.createElement("x-cleanup");
+  document.body.append(el);
+  check("defineElement: 接続中は onCleanup 未発火", state.cleaned === false);
+  el.remove();
+  check("defineElement: 切断で onCleanup 発火", state.cleaned === true);
+}
+
+// === defineElement: ctx.attr で属性 → signal ===
+{
+  const { p } = tags;
+  defineElement("x-greet", (_host, { attr }) => {
+    const name = attr("name");
+    return p(() => `hello ${name.value ?? "?"}`);
+  });
+  const el = document.createElement("x-greet");
+  el.setAttribute("name", "Alice");
+  document.body.append(el);
+  check("defineElement: attr 初期値", el.querySelector("p")?.textContent === "hello Alice");
+  el.setAttribute("name", "Bob");
+  await tick();                      // MutationObserver の配信を待つ
+  check("defineElement: attr 変更で再描画", el.querySelector("p")?.textContent === "hello Bob",
+    `text=${el.querySelector("p")?.textContent}`);
+  el.removeAttribute("name");
+  await tick();
+  check("defineElement: attr 削除で null", el.querySelector("p")?.textContent === "hello ?");
+}
+
+// === defineElement: shadow オプション ===
+{
+  const { span } = tags;
+  defineElement("x-shadow", () => span("内側"), { shadow: true });
+  const el = document.createElement("x-shadow");
+  document.body.append(el);
+  check("defineElement: shadow に描画（host は空）", el.childNodes.length === 0);
+  check("defineElement: shadowRoot に中身がある", el.shadowRoot?.querySelector("span")?.textContent === "内側");
+}
+
+// === defineElement: 再接続で setup し直す ===
+{
+  let setups = 0;
+  defineElement("x-reconnect", () => { setups++; const { div } = tags; return div("r"); });
+  const el = document.createElement("x-reconnect");
+  document.body.append(el);
+  check("defineElement: 初回 setup", setups === 1);
+  el.remove();
+  document.body.append(el);          // 再接続
+  check("defineElement: 再接続で setup し直す", setups === 2, `setups=${setups}`);
+  check("defineElement: 再接続後も描画される", el.querySelector("div")?.textContent === "r");
 }
 
 console.log(log.join("\n"));

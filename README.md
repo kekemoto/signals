@@ -3,7 +3,7 @@
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
 - **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot`
-- **DOM** — `h` / `tags` / `For` / `Show`
+- **DOM** — `h` / `tags` / `For` / `Show` / `defineElement`（Web Component）
 
 ## インストール
 
@@ -254,6 +254,55 @@ const view = div(
 );
 ```
 
+### `defineElement(name, setup, options?)`
+
+`setup` の中身を持つ Custom Element（Web Component）を登録する。
+接続時に `createRoot` を張って `setup` を1回呼び、返した DOM をマウントする。
+切断時にその root を dispose するので、`h` / `For` / `Show` が張った `effect` が孤児になって
+リークしない。
+
+```js
+import { defineElement } from "@kekemoto/signals/element";
+import { signal } from "@kekemoto/signals";
+import { tags } from "@kekemoto/signals/tags";
+
+const { div, span, button } = tags;
+
+defineElement("x-counter", () => {
+  const count = signal(0);
+  return div(
+    span(() => count.value),
+    button({ onClick: () => count.value++ }, "+1"),
+  );
+});
+
+document.body.append(document.createElement("x-counter"));
+// または HTML に直接 <x-counter></x-counter>
+```
+
+**属性 → signal**: `setup` の第2引数 `ctx.attr(name)` は、その属性を映す `signal` を返す
+（内部は `MutationObserver`、dispose 時に自動で外れる）。外から属性を書き換えると再描画される。
+
+```js
+defineElement("x-greet", (host, { attr }) => {
+  const name = attr("name");
+  return tags.p(() => `hello ${name.value ?? "?"}`);
+});
+// <x-greet name="Alice"></x-greet> → "hello Alice"
+// el.setAttribute("name", "Bob")    → "hello Bob"
+```
+
+**描画先（Shadow / light DOM）**: 既定は light DOM（host 直下）。`{ shadow: true }` で
+open な Shadow DOM に描画してスタイルを隔離できる（`ShadowRootInit` を渡せば `mode` 等も指定可）。
+
+```js
+defineElement("x-card", () => tags.div({ class: "card" }, "..."), { shadow: true });
+```
+
+> **再接続の挙動**: 切断（`disconnectedCallback`）で root を dispose し、再接続で `setup` を
+> 走らせ直す。＝ローカル状態はリセットされる。DOM 内で要素を「移動」させると一度切断されるので
+> 状態が初期化される点に注意（跨いで保持したい状態は host の外に持つ）。
+
 ## 所有ツリー（自動 dispose）
 
 `effect` / `memo` を別の `effect` の中で作ると、外側の effect の「子」として自動登録される。
@@ -279,7 +328,7 @@ effect(() => {
 （`dist/signals.global.js` / `.min.js`）を束ねる。
 
 ```
-src/    reactive.ts / h.ts / tags.ts / for.ts / show.ts / index.ts
+src/    reactive.ts / h.ts / tags.ts / for.ts / show.ts / element.ts / index.ts
 test/   test-core.ts / test-owner.ts / test-dom.ts
 ```
 

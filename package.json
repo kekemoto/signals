@@ -30,6 +30,10 @@
     "./show": {
       "types": "./dist/src/show.d.ts",
       "default": "./dist/src/show.js"
+    },
+    "./element": {
+      "types": "./dist/src/element.d.ts",
+      "default": "./dist/src/element.js"
     }
   },
   "files": [
