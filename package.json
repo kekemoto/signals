@@ -23,6 +23,10 @@
       "types": "./dist/src/tags.d.ts",
       "default": "./dist/src/tags.js"
     },
+    "./html": {
+      "types": "./dist/src/html.d.ts",
+      "default": "./dist/src/html.js"
+    },
     "./for": {
       "types": "./dist/src/for.d.ts",
       "default": "./dist/src/for.js"

@@ -208,6 +208,35 @@ const el = div(
 document.body.append(el);
 ```
 
+### `` html`...` ``
+
+タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
+静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
+関数の穴は reactive（属性・子テキスト）になり、`onXxx=${fn}` はイベントになる。
+
+```js
+import { html } from "@kekemoto/signals/html";
+import { signal } from "@kekemoto/signals";
+
+const count = signal(0);
+
+const el = html`
+  <div class="box">
+    <span>count: ${() => count.value}</span>
+    <button onClick=${() => count.value++}>+1</button>
+  </div>`;
+
+document.body.append(el);
+```
+
+- 関数の穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
+- 属性は丸ごと（`class=${fn}`）でも部分（`class="box ${fn}"`）でも穴を置ける。
+- 子の穴には文字列・数値のほか、`Node`・配列・ネストした `` html`...` `` を差し込める。
+- ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
+
+> 構造そのものは作り直さず、穴だけを `effect` で更新する（`h` と同じ方針）。
+> リスト・条件表示は `For` / `Show` を子の穴に置いて組み合わせる。
+
 ### `For(itemsFn, keyFn, render)`
 
 key 付きリスト差分描画。存在し続ける行の `effect` は畳まれない。
@@ -279,7 +308,7 @@ effect(() => {
 （`dist/signals.global.js` / `.min.js`）を束ねる。
 
 ```
-src/    reactive.ts / h.ts / tags.ts / for.ts / show.ts / index.ts
+src/    reactive.ts / h.ts / tags.ts / html.ts / for.ts / show.ts / index.ts
 test/   test-core.ts / test-owner.ts / test-dom.ts
 ```
 
