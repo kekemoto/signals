@@ -202,7 +202,7 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 // === defineElement: ctx.attr で属性 → signal ===
 {
   const { p } = tags;
-  defineElement("x-greet", (_host, { attr }) => {
+  defineElement("x-greet", ({ attr }) => {
     const name = attr("name");
     return p(() => `hello ${name.value ?? "?"}`);
   });
@@ -217,6 +217,20 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   el.removeAttribute("name");
   await tick();
   check("defineElement: attr 削除で null", el.querySelector("p")?.textContent === "hello ?");
+}
+
+// === defineElement: ctx.host で要素自身に触れる ===
+{
+  const { div } = tags;
+  defineElement("x-host", ({ host }) => {
+    host.classList.add("ready");          // host 自身を操作
+    return div(host.getAttribute("data-x") ?? "");
+  });
+  const el = document.createElement("x-host");
+  el.setAttribute("data-x", "yo");
+  document.body.append(el);
+  check("defineElement: ctx.host で要素を操作", el.classList.contains("ready"));
+  check("defineElement: ctx.host から属性を読む", el.querySelector("div")?.textContent === "yo");
 }
 
 // === defineElement: shadow オプション ===

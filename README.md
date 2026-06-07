@@ -280,16 +280,34 @@ document.body.append(document.createElement("x-counter"));
 // または HTML に直接 <x-counter></x-counter>
 ```
 
-**属性 → signal**: `setup` の第2引数 `ctx.attr(name)` は、その属性を映す `signal` を返す
+`setup` は文脈オブジェクト `ctx` を1つ受け取る。`ctx.host`（要素自身）と `ctx.attr`
+（属性を読むヘルパー）が入っているので、必要なものを分割代入で取り出して使う。
+
+**属性 → signal**: `ctx.attr(name)` は、その属性を映す `signal` を返す
 （内部は `MutationObserver`、dispose 時に自動で外れる）。外から属性を書き換えると再描画される。
 
 ```js
-defineElement("x-greet", (host, { attr }) => {
+defineElement("x-greet", ({ attr }) => {
   const name = attr("name");
   return tags.p(() => `hello ${name.value ?? "?"}`);
 });
 // <x-greet name="Alice"></x-greet> → "hello Alice"
 // el.setAttribute("name", "Bob")    → "hello Bob"
+```
+
+**host（要素自身）**: `ctx.host` で登録した要素そのものに触れる。イベント発火や
+プロパティ操作など、属性以外の Web Component らしい操作の入り口。
+
+```js
+defineElement("x-toggle", ({ host }) => {
+  const open = signal(false);
+  return tags.button({
+    onClick: () => {
+      open.value = !open.value;
+      host.dispatchEvent(new CustomEvent("toggle", { detail: open.value })); // 外向きに通知
+    },
+  }, () => (open.value ? "閉じる" : "開く"));
+});
 ```
 
 **描画先（Shadow / light DOM）**: 既定は light DOM（host 直下）。`{ shadow: true }` で

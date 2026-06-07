@@ -27,25 +27,27 @@ export interface DefineOptions {
   elementOptions?: ElementDefinitionOptions;
 }
 
-/** setup に渡る文脈。属性を signal として読むためのヘルパーを持つ。 */
+/** setup に渡る文脈。操作対象の host と、属性を signal として読むヘルパーを持つ。 */
 export interface SetupContext {
+  /** 登録した Custom Element 自身（この要素）。イベント発火やプロパティ操作の入り口。 */
+  host: HTMLElement;
   /** 属性 name を映す signal を返す（同じ name には同じ signal を返す）。属性が変わると .value も変わる。 */
   attr(name: string): Signal<string | null>;
 }
 
 /** Custom Element の中身を組む関数。createRoot 内で1回呼ばれ、返した Node がマウントされる。 */
 export type Setup = (
-  host: HTMLElement,
   ctx: SetupContext,
 ) => Node | null | undefined | void;
 
-// host の属性を signal として配るヘルパーを作る。
+// host に紐づく文脈（host + ヘルパー）を作る。
 // MutationObserver は最初に attr() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
 function makeContext(host: HTMLElement): SetupContext {
   const signals = new Map<string, Signal<string | null>>();
   let observer: MutationObserver | null = null;
 
   return {
+    host,
     attr(name: string): Signal<string | null> {
       let sig = signals.get(name);
       if (sig) return sig;                       // 同じ属性名には同じ signal を返す
@@ -97,7 +99,7 @@ export function defineElement(
 
       createRoot((dispose) => {
         this.#dispose = dispose;
-        const node = setup(this, makeContext(this));
+        const node = setup(makeContext(this));
         if (node != null) target.append(node);
       });
     }
