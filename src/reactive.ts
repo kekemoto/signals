@@ -5,7 +5,6 @@
 //   effect    : 依存が変わると再実行される副作用。dispose 関数を返す
 //   batch     : 複数の変更を1回の再実行にまとめる
 //   memo      : 重い派生を1回だけ計算して共有・キャッシュする（signal+effect の合成）
-//   reactive  : オブジェクトを Proxy で包み、プロパティ単位で reactive にする
 //   onCleanup : effect の後始末を登録する。再実行直前・dispose時に呼ばれる
 //
 // 派生値は基本「ただの関数」で書く:
@@ -32,8 +31,6 @@
 //   - トップレベル（どの effect の中でもない場所）で作った effect / memo は親がいない
 //     ので自動では畳まれない。戻り値（effect）や read.dispose（memo）で手動解放する。
 //     これらを1か所にまとめたいなら createRoot 相当を足すとよい。
-//   - reactive: 配列の特殊最適化なし / キー列挙(Object.keys, for..in)は未追跡
-//     （個別 key の読み書きと、キーの新規追加・削除は追跡する）
 // =============================================================================
 
 // --- 型 ---------------------------------------------------------------------
@@ -158,6 +155,13 @@ export function signal<T>(initial: T): Signal<T> {
   };
 }
 
+// signal() が返すセルかどうかを判定する。h / tags / html で「関数の穴」と同じく
+// reactive に扱うため、シグナルを直接渡せる（${count} のように .value を省ける）。
+// peek を持つことを目印にする（プレーンなオブジェクトは peek を持たないので false）。
+export function isSignal(x: unknown): x is Signal<unknown> {
+  return x != null && typeof x === "object" && typeof (x as Signal<unknown>).peek === "function";
+}
+
 // --- effect -----------------------------------------------------------------
 // 依存が変わると再実行される副作用。戻り値を呼ぶと購読解除（dispose）。
 // run() 自身が「実行中の effect」の正体。依存(deps)・子(children)・後始末(cleanups)・
@@ -227,55 +231,4 @@ export function memo<T>(fn: () => T): Memo<T> {
   const read = (() => cache.value as T) as Memo<T>;          // 読み口（fullName() のように呼ぶ）
   read.dispose = disposeMemo;                                // 任意: 内部 effect の解放用
   return read;
-}
-
-// --- reactive ---------------------------------------------------------------
-// オブジェクトを Proxy で包み、プロパティ単位で track / notify に繋ぐ。
-// 「プロパティ名をキーにした signal の束」と考えると分かりやすい。
-// in-place な変更（state.count++ や state.a.b = x）がそのまま反応する。
-const RAW = Symbol("raw");          // proxy から生オブジェクトを取り出す目印
-const proxyCache = new WeakMap<object, unknown>();   // 同じ生オブジェクト → 同じ proxy（同一性を保つ）
-
-export function reactive<T>(target: T): T {
-  if (!target || typeof target !== "object") return target; // プリミティブは素通し
-  const obj = target as Record<PropertyKey, unknown>;
-  if (obj[RAW]) return target;                              // 既に proxy
-  if (proxyCache.has(obj)) return proxyCache.get(obj) as T;
-
-  const subscribersByKey = new Map<PropertyKey, Subscribers>();   // key ごとに購読者リストを遅延生成
-
-  function subscribersOf(key: PropertyKey): Subscribers {
-    let subscribers = subscribersByKey.get(key);
-    if (!subscribers) {
-      subscribers = new Set();
-      subscribersByKey.set(key, subscribers);
-    }
-    return subscribers;
-  }
-
-  const proxy = new Proxy(obj, {
-    get(o, key, receiver) {
-      if (key === RAW) return o;
-      track(subscribersOf(key));                              // 読まれた key を依存に
-      const value = Reflect.get(o, key, receiver);
-      return value && typeof value === "object" ? reactive(value) : value; // ネストも深く
-    },
-    set(o, key, value, receiver) {
-      const raw = (value as Record<PropertyKey, unknown> | null)?.[RAW] ?? value; // proxy なら生に戻して保存
-      const existed = key in o;
-      const prev = o[key];
-      const ok = Reflect.set(o, key, raw, receiver);
-      if (!existed || !Object.is(prev, raw)) notify(subscribersOf(key)); // key 単位で判定
-      return ok;
-    },
-    deleteProperty(o, key) {
-      const existed = key in o;
-      const ok = Reflect.deleteProperty(o, key);
-      if (existed) notify(subscribersOf(key));
-      return ok;
-    },
-  });
-
-  proxyCache.set(obj, proxy);
-  return proxy as T;
 }

@@ -2,8 +2,8 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot`
-- **DOM** — `h` / `tags` / `For` / `Show` / `defineElement`（Web Component）
+- **コア** — `signal` / `effect` / `batch` / `memo` / `store` / `onCleanup` / `createRoot` / `isSignal`
+- **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
 
 ## インストール
 
@@ -121,22 +121,23 @@ a.value = 6; // → 両 effect に 10 が流れる（計算は1回）
 
 > **軽い派生は普通の関数で書く**のが基本方針。複数箇所で読む重い計算だけ `memo` に差し替える。
 
-### `reactive(target)`
+### `store(obj)`
 
-オブジェクトを Proxy で包み、プロパティ単位でリアクティブにする。
+オブジェクトの **葉（プリミティブ等の非オブジェクト値）を `signal` に置き換えた、同じ形の木**を返す。ネストしたオブジェクト・配列は形を保ったまま再帰する。
 
 ```js
-import { reactive, effect } from "@kekemoto/signals";
+import { store, effect } from "@kekemoto/signals";
 
-const state = reactive({ count: 0, name: "Alice" });
+const state = store({ user: { name: "Alice", age: 20 }, ok: true });
 
-effect(() => console.log(state.count));
-// → 0
+effect(() => console.log(state.user.age.value)); // → 20
 
-state.count++; // → 1（count だけ再実行、name を読む effect は無反応）
+state.user.age.value++; // → 21（この葉を読む effect / 穴だけ反応）
 ```
 
-ネストしたオブジェクトも自動で reactive になる。キーの追加・削除も追跡する。
+葉が `signal` そのものなので、`h` / `tags` / `` html`...` `` の穴には **`() =>` で包まず直接渡せる**（`span(state.user.name)`）。読み書きは `.value` 経由になる。
+
+> **構造変化は追跡しない** — キーの追加・削除や配列の `push` / `splice` は反応しない（`signal` は葉に張るため）。構造ごと差し替えたいなら `signal(obj)` を丸ごと持つ方が向く。
 
 ### `onCleanup(fn)`
 
@@ -170,9 +171,14 @@ stop(); // 配下の effect をすべて解放
 
 ## DOM API
 
+> **reactive な穴の渡し方** — `h` / `tags` / `` html`...` `` はいずれも、穴に
+> **関数**（`() => count.value`）か **シグナルそのもの**（`count`）を渡すと reactive に
+> なる。単一のシグナルなら `count`、複数の値を組み合わせる派生は `() => a.value + b.value`
+> のように関数で包む（`${...}` はその場で評価されるため、合成式は関数が必須）。
+
 ### `h(tag, props, children)`
 
-最小 hyperscript。props の値が関数なら reactive な属性・子になる。
+最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
 `children` は単一の子、または子の配列（ネストしていてもフラット化される）。
 
 ```js
@@ -208,9 +214,39 @@ const el = div(
 document.body.append(el);
 ```
 
-### `For(itemsFn, keyFn, render)`
+### `` html`...` ``
+
+タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
+静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
+関数 / シグナルの穴は reactive（属性・子テキスト）になり、`onXxx=${fn}` はイベントになる。
+
+```js
+import { html } from "@kekemoto/signals/html";
+import { signal } from "@kekemoto/signals";
+
+const count = signal(0);
+
+const el = html`
+  <div class="box">
+    <span>count: ${count}</span>
+    <button onClick=${() => count.value++}>+1</button>
+  </div>`;
+
+document.body.append(el);
+```
+
+- 関数 / シグナルの穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
+- 属性は丸ごと（`class=${fn}`）でも部分（`class="box ${fn}"`）でも穴を置ける。
+- 子の穴には文字列・数値のほか、`Node`・配列・ネストした `` html`...` `` を差し込める。
+- ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
+
+> 構造そのものは作り直さず、穴だけを `effect` で更新する（`h` と同じ方針）。
+> リスト・条件表示は `For` / `Show` を子の穴に置いて組み合わせる。
+
+### `For(items, keyFn, render)`
 
 key 付きリスト差分描画。存在し続ける行の `effect` は畳まれない。
+第1引数は**配列のシグナルそのもの**でも、配列を返す関数（`() => items.value`）でもよい。
 
 ```js
 import { For } from "@kekemoto/signals/for";
@@ -226,16 +262,17 @@ const items = signal([
 
 const list = ul(
   For(
-    () => items.value,
+    items,                  // signal を直接渡せる（() => items.value でも可）
     item => item.id,
     item => li(item.text),
   ),
 );
 ```
 
-### `Show(whenFn, render, fallback?)`
+### `Show(when, render, fallback?)`
 
 条件表示。真偽が切り替わったときだけ中身を作り直す（内部の `effect` も dispose される）。
+第1引数は**シグナルそのもの**でも、真偽を返す関数（`() => loggedIn.value`）でもよい。
 
 ```js
 import { Show } from "@kekemoto/signals/show";
@@ -247,7 +284,7 @@ const loggedIn = signal(false);
 
 const view = div(
   Show(
-    () => loggedIn.value,
+    loggedIn,               // signal を直接渡せる（() => loggedIn.value でも可）
     () => p("ようこそ"),
     () => p("ログインしてください"),
   ),
@@ -258,22 +295,21 @@ const view = div(
 
 `setup` の中身を持つ Custom Element（Web Component）を登録する。
 接続時に `createRoot` を張って `setup` を1回呼び、返した DOM をマウントする。
-切断時にその root を dispose するので、`h` / `For` / `Show` が張った `effect` が孤児になって
-リークしない。
+切断時にその root を dispose するので、`html` / `h` / `For` / `Show` が張った `effect` が孤児に
+なってリークしない。
 
 ```js
 import { defineElement } from "@kekemoto/signals/element";
 import { signal } from "@kekemoto/signals";
-import { tags } from "@kekemoto/signals/tags";
-
-const { div, span, button } = tags;
+import { html } from "@kekemoto/signals/html";
 
 defineElement("x-counter", () => {
   const count = signal(0);
-  return div(
-    span(() => count.value),
-    button({ onClick: () => count.value++ }, "+1"),
-  );
+  return html`
+    <div>
+      <span>${count}</span>
+      <button onClick=${() => count.value++}>+1</button>
+    </div>`;
 });
 
 document.body.append(document.createElement("x-counter"));
@@ -289,7 +325,7 @@ document.body.append(document.createElement("x-counter"));
 ```js
 defineElement("x-greet", ({ attr }) => {
   const name = attr("name");
-  return tags.p(() => `hello ${name.value ?? "?"}`);
+  return html`<p>hello ${() => name.value ?? "?"}</p>`;
 });
 // <x-greet name="Alice"></x-greet> → "hello Alice"
 // el.setAttribute("name", "Bob")    → "hello Bob"
@@ -301,12 +337,11 @@ defineElement("x-greet", ({ attr }) => {
 ```js
 defineElement("x-toggle", ({ host }) => {
   const open = signal(false);
-  return tags.button({
-    onClick: () => {
-      open.value = !open.value;
-      host.dispatchEvent(new CustomEvent("toggle", { detail: open.value })); // 外向きに通知
-    },
-  }, () => (open.value ? "閉じる" : "開く"));
+  const toggle = () => {
+    open.value = !open.value;
+    host.dispatchEvent(new CustomEvent("toggle", { detail: open.value })); // 外向きに通知
+  };
+  return html`<button onClick=${toggle}>${() => (open.value ? "閉じる" : "開く")}</button>`;
 });
 ```
 
@@ -314,7 +349,7 @@ defineElement("x-toggle", ({ host }) => {
 open な Shadow DOM に描画してスタイルを隔離できる（`ShadowRootInit` を渡せば `mode` 等も指定可）。
 
 ```js
-defineElement("x-card", () => tags.div({ class: "card" }, "..."), { shadow: true });
+defineElement("x-card", () => html`<div class="card">...</div>`, { shadow: true });
 ```
 
 > **再接続の挙動**: 切断（`disconnectedCallback`）で root を dispose し、再接続で `setup` を
@@ -346,7 +381,7 @@ effect(() => {
 （`dist/signals.global.js` / `.min.js`）を束ねる。
 
 ```
-src/    reactive.ts / h.ts / tags.ts / for.ts / show.ts / element.ts / index.ts
+src/    reactive.ts / store.ts / h.ts / tags.ts / html.ts / for.ts / show.ts / element.ts / index.ts
 test/   test-core.ts / test-owner.ts / test-dom.ts
 ```
 

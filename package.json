@@ -1,7 +1,7 @@
 {
   "name": "@kekemoto/signals",
   "version": "0.1.0",
-  "description": "最小リアクティブシステム（signal / effect / memo / reactive）と DOM ユーティリティ",
+  "description": "最小リアクティブシステム（signal / effect / memo）と DOM ユーティリティ",
   "type": "module",
   "types": "./dist/src/index.d.ts",
   "unpkg": "./dist/signals.global.min.js",
@@ -22,6 +22,10 @@
     "./tags": {
       "types": "./dist/src/tags.d.ts",
       "default": "./dist/src/tags.js"
+    },
+    "./html": {
+      "types": "./dist/src/html.d.ts",
+      "default": "./dist/src/html.js"
     },
     "./for": {
       "types": "./dist/src/for.d.ts",
