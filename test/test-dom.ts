@@ -54,6 +54,19 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("h: 構築は1回（穴だけ更新）", builds === 1 && el.textContent === "5", `builds=${builds}`);
 }
 
+// === h: props 省略（第1引数から子を直接渡せる）===
+{
+  const count = signal(0);
+  const el = h("div", () => count.value);       // props を省略
+  check("h: props 省略で関数を子に", el.tagName === "DIV" && el.textContent === "0");
+  count.value = 4;
+  check("h: props 省略の子も reactive", el.textContent === "4");
+}
+{
+  const el = h("ul", h("li", "a"), h("li", "b")); // props 省略 + 複数子（可変長）
+  check("h: props 省略で複数子を可変長で渡せる", el.querySelectorAll("li").length === 2);
+}
+
 // === tags ===
 {
   const { div, span } = tags;
@@ -63,6 +76,14 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("tags: reactive 子", el.querySelector("span")!.textContent === "1");
   count.value = 9;
   check("tags: 子の更新", el.querySelector("span")!.textContent === "9");
+}
+
+// === tags: camelCase → kebab-case 変換（Custom Element 用）===
+{
+  const el = tags.myCard({ id: "c" }, "x");
+  check("tags: myCard → my-card", el.tagName.toLowerCase() === "my-card");
+  check("tags: kebab 要素にも props/子が効く", el.id === "c" && el.textContent === "x");
+  check("tags: 単語1つはそのまま", tags.div().tagName === "DIV");
 }
 
 // === html (tagged template literal) ===
@@ -266,7 +287,7 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("defineElement: 内部 signal で再描画", el.querySelector("span")?.textContent === "1");
 }
 
-// === defineElement: disconnected で root を畳む（effect / onCleanup を解放）===
+// === defineElement: 本当に切断されたら root を畳む（遅延 dispose）===
 {
   const ext = signal(0);
   let runs = 0;
@@ -281,12 +302,13 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   ext.value = 1;
   check("defineElement: 接続中は外部 signal に反応", runs === 2 && el.querySelector("div")?.textContent === "1");
 
-  el.remove();                       // disconnected → dispose
+  el.remove();                       // disconnected → 次の microtask で dispose
+  await tick();
   ext.value = 2;
-  check("defineElement: 切断後は effect が走らない（dispose 済み）", runs === 2, `runs=${runs}`);
+  check("defineElement: 切断確定後は effect が走らない（dispose 済み）", runs === 2, `runs=${runs}`);
 }
 
-// === defineElement: onCleanup が disconnected で呼ばれる ===
+// === defineElement: onCleanup が切断確定で呼ばれる ===
 {
   const { onCleanup } = await import("../src/reactive.js");
   const state = { cleaned: false };  // オブジェクト経由にして TS の literal 絞り込みを避ける
@@ -299,7 +321,8 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   document.body.append(el);
   check("defineElement: 接続中は onCleanup 未発火", state.cleaned === false);
   el.remove();
-  check("defineElement: 切断で onCleanup 発火", state.cleaned === true);
+  await tick();                      // 遅延 dispose を確定させる
+  check("defineElement: 切断確定で onCleanup 発火", state.cleaned === true);
 }
 
 // === defineElement: ctx.attr で属性 → signal ===
@@ -336,26 +359,33 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("defineElement: ctx.host から属性を読む", el.querySelector("div")?.textContent === "yo");
 }
 
-// === defineElement: shadow オプション ===
-{
-  const { span } = tags;
-  defineElement("x-shadow", () => span("内側"), { shadow: true });
-  const el = document.createElement("x-shadow");
-  document.body.append(el);
-  check("defineElement: shadow に描画（host は空）", el.childNodes.length === 0);
-  check("defineElement: shadowRoot に中身がある", el.shadowRoot?.querySelector("span")?.textContent === "内側");
-}
-
-// === defineElement: 再接続で setup し直す ===
+// === defineElement: 移動（同期 remove→append）では setup を作り直さず状態を保つ ===
 {
   let setups = 0;
-  defineElement("x-reconnect", () => { setups++; const { div } = tags; return div("r"); });
-  const el = document.createElement("x-reconnect");
-  document.body.append(el);
+  defineElement("x-move", () => { setups++; const { div } = tags; return div("m"); });
+  const a = mount(), b = mount();
+  const el = document.createElement("x-move");
+  a.append(el);
   check("defineElement: 初回 setup", setups === 1);
+
+  b.append(el);                      // 別の親へ移動（disconnect→connect が連続）
+  await tick();                      // 遅延 dispose のタイミングを通過させる
+  check("defineElement: 移動では setup を作り直さない", setups === 1, `setups=${setups}`);
+  check("defineElement: 移動後も描画される", el.querySelector("div")?.textContent === "m");
+}
+
+// === defineElement: 本当に切断してからの再接続は setup し直す ===
+{
+  let setups = 0;
+  defineElement("x-reinit", () => { setups++; const { div } = tags; return div("r"); });
+  const el = document.createElement("x-reinit");
+  document.body.append(el);
+  check("defineElement: 初回 setup（reinit）", setups === 1);
+
   el.remove();
-  document.body.append(el);          // 再接続
-  check("defineElement: 再接続で setup し直す", setups === 2, `setups=${setups}`);
+  await tick();                      // 切断を確定させて dispose
+  document.body.append(el);          // 改めて接続
+  check("defineElement: 切断確定後の再接続で setup し直す", setups === 2, `setups=${setups}`);
   check("defineElement: 再接続後も描画される", el.querySelector("div")?.textContent === "r");
 }
 

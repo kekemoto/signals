@@ -1,6 +1,7 @@
 // h.ts — reactive.ts に乗る最小 hyperscript（h 関数方式）
 // tagged template と違い、属性(props)と子(children)が引数で分かれているので
 // 「穴が属性か子か」の文字列判定が要らない。穴ごとに effect を張るのは同じ。
+// 第1引数の props は省略できる（h("div", () => count.value) のように直接子を渡せる）。
 import { effect, isSignal, type Signal } from "./reactive.js";
 
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
@@ -15,8 +16,23 @@ export type Props = Record<string, PropValue>;
 /** h(tag, props, child) に渡せる子。関数 / シグナルは reactive なテキスト、配列はフラット化される。 */
 export type Child = Node | Renderable | (() => Renderable) | Signal<Renderable> | Child[];
 
-export function h(tag: string, props?: Props | null, children?: Child): HTMLElement {
+/** 第1引数が「props オブジェクトか、それとも子か」を見分ける。
+ *  文字列・数値・関数・配列・DOMノード・シグナルは子。プレーンな {} だけ props 扱い。 */
+export function isProps(x: unknown): x is Props {
+  return x != null
+    && typeof x === "object"      // 関数は "function" なのでここで除外される
+    && !Array.isArray(x)
+    && !(x instanceof Node)
+    && !isSignal(x);
+}
+
+export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElement {
   const el = document.createElement(tag);
+
+  // 第1引数が props なら属性に、そうでなければ全部子として扱う（props 省略）。
+  const hasProps = isProps(args[0]);
+  const props = hasProps ? (args[0] as Props) : null;
+  const children = hasProps ? args.slice(1) : args;
 
   for (const key in (props || {})) {
     const v = (props as Props)[key];
@@ -31,8 +47,8 @@ export function h(tag: string, props?: Props | null, children?: Child): HTMLElem
     }
   }
 
-  // children は単一の子か、子の配列。配列はネストしていてもフラット化する。
-  for (const child of ([children] as unknown[]).flat(Infinity) as Child[]) appendChild(el, child);
+  // 子はネストしていてもフラット化する。
+  for (const child of (children as unknown[]).flat(Infinity) as Child[]) appendChild(el, child);
   return el;
 }
 

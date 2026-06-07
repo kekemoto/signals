@@ -176,10 +176,11 @@ stop(); // 配下の effect をすべて解放
 > なる。単一のシグナルなら `count`、複数の値を組み合わせる派生は `() => a.value + b.value`
 > のように関数で包む（`${...}` はその場で評価されるため、合成式は関数が必須）。
 
-### `h(tag, props, children)`
+### `h(tag, props?, ...children)`
 
 最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
-`children` は単一の子、または子の配列（ネストしていてもフラット化される）。
+子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、第2引数が
+プレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
 
 ```js
 import { h } from "@kekemoto/signals/h";
@@ -187,28 +188,31 @@ import { signal } from "@kekemoto/signals";
 
 const count = signal(0);
 
-const el = h("div", { class: "box" }, [
-  h("span", {}, () => `count: ${count.value}`),
+const el = h("div", { class: "box" },
+  h("span", () => `count: ${count.value}`),   // props 省略
   h("button", { onClick: () => count.value++ }, "+1"),
-]);
+);
 
 document.body.append(el);
 ```
 
 ### `tags`
 
-`h` を Proxy で包んだタグビルダー DSL。
+`h` を Proxy で包んだタグビルダー DSL。第1引数が props ならそれを属性に、以降を子にする
+（props は省略可）。**プロパティ名の camelCase は kebab-case のタグ名に変換される**ので、
+ハイフン必須の Custom Element も `tags.myCard(...)`（→ `<my-card>`）と書ける。
 
 ```js
 import { tags } from "@kekemoto/signals/tags";
 import { signal } from "@kekemoto/signals";
 
-const { div, button, span } = tags;
+const { div, button, span, myCard } = tags;
 const count = signal(0);
 
 const el = div(
   span(() => count.value),
   button({ onClick: () => count.value++ }, "+1"),
+  myCard({ title: "hi" }),                      // → <my-card title="hi">
 );
 
 document.body.append(el);
@@ -345,16 +349,12 @@ defineElement("x-toggle", ({ host }) => {
 });
 ```
 
-**描画先（Shadow / light DOM）**: 既定は light DOM（host 直下）。`{ shadow: true }` で
-open な Shadow DOM に描画してスタイルを隔離できる（`ShadowRootInit` を渡せば `mode` 等も指定可）。
+描画先は host 直下（light DOM）。
 
-```js
-defineElement("x-card", () => html`<div class="card">...</div>`, { shadow: true });
-```
-
-> **再接続の挙動**: 切断（`disconnectedCallback`）で root を dispose し、再接続で `setup` を
-> 走らせ直す。＝ローカル状態はリセットされる。DOM 内で要素を「移動」させると一度切断されるので
-> 状態が初期化される点に注意（跨いで保持したい状態は host の外に持つ）。
+> **再接続の挙動**: 切断（`disconnectedCallback`）では即 dispose せず、次のマイクロタスクまで
+> 待ってから「まだ未接続なら本当に切り離された」と判断して root を dispose する。これにより
+> DOM 内での**移動**（付け替え）は disconnect→connect が連続するだけなので状態が保たれる。
+> 本当に切り離してから別の場所に再接続した場合は `setup` を走らせ直す（ローカル状態はリセット）。
 
 ## 所有ツリー（自動 dispose）
 
