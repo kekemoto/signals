@@ -3,13 +3,13 @@ export {
   effect,
   batch,
   memo,
-  reactive,
   onCleanup,
   createRoot,
   isSignal,
   type Signal,
   type Memo,
 } from "./reactive.js";
+export { store, type Store } from "./store.js";
 export { h, type Props, type PropValue, type Child } from "./h.js";
 export { tags, type TagBuilder } from "./tags.js";
 export { html } from "./html.js";

@@ -1,7 +1,8 @@
-// test-core.ts — signal / effect / batch / memo / reactive の回帰テスト
+// test-core.ts — signal / effect / batch / memo の回帰テスト
 // 実行: node dist/test/test-core.js  (jsdom 不要)
 const mod = process.argv[2] || "../src/reactive.js";
-const { signal, effect, batch, memo, reactive } = await import(mod);
+const { signal, effect, batch, memo } = await import(mod);
+const { store } = await import("../src/store.js");
 
 let pass = 0, fail = 0;
 const log: string[] = [];
@@ -99,57 +100,7 @@ function check(name: string, cond: unknown, detail = ""): void {
   check("cutoff 結果変化で下流実行", runs === 2, `runs=${runs}`);
 }
 
-// 9. reactive: プロパティ単位の反応
-{
-  const state = reactive({ count: 0, name: "x" });
-  let runs = 0, seen;
-  effect(() => { runs++; seen = state.count; });
-  state.count++;
-  check("reactive 個別key反応", runs === 2 && seen === 1);
-  runs = 0;
-  state.name = "y"; // 別keyは無反応のはず
-  check("reactive 別keyは無反応", runs === 0, `runs=${runs}`);
-}
-
-// 10. reactive: ネスト
-{
-  const state = reactive({ a: { b: 1 } });
-  let seen, runs = 0;
-  effect(() => { runs++; seen = state.a.b; });
-  state.a.b = 9;
-  check("reactive ネスト反応", seen === 9 && runs === 2, `runs=${runs} seen=${seen}`);
-}
-
-// 11. reactive: キー追加・削除
-{
-  const state: Record<string, number | undefined> = reactive({});
-  let has, runs = 0;
-  effect(() => { runs++; has = state.x; });
-  state.x = 1;
-  check("reactive キー追加で反応", has === 1 && runs === 2);
-  delete state.x;
-  check("reactive キー削除で反応", state.x === undefined && runs === 3, `runs=${runs}`);
-}
-
-// 12. reactive: 同一proxy同一性
-{
-  const obj = {};
-  const r1 = reactive(obj), r2 = reactive(obj);
-  check("reactive 同一性キャッシュ", r1 === r2);
-  const nested = { inner: {} };
-  const rn = reactive(nested);
-  check("reactive ネストも同一性", rn.inner === rn.inner);
-}
-
-// 13. reactive set に proxy を入れても生で保存される
-{
-  const state = reactive({ a: { v: 1 } });
-  const child = reactive({ v: 2 });
-  state.a = child;
-  check("reactive proxy代入後も読める", state.a.v === 2);
-}
-
-// 14. ネストした batch
+// 9. ネストした batch
 {
   const a = signal(0);
   let runs = 0;
@@ -159,7 +110,7 @@ function check(name: string, cond: unknown, detail = ""): void {
   check("ネストbatchは外側で1回flush", runs === 1, `runs=${runs}`);
 }
 
-// 15. effect 連鎖（A が書き B が読む）でグリッチなし
+// 10. effect 連鎖（A が書き B が読む）でグリッチなし
 {
   const x = signal(1);
   const doubled = signal(0);
@@ -170,7 +121,7 @@ function check(name: string, cond: unknown, detail = ""): void {
   check("連鎖伝播 最終値正しい", seen === 10, `seen=${seen}`);
 }
 
-// 16. flush 中に effect が例外を投げても他は実行されるか（堅牢性）
+// 11. flush 中に effect が例外を投げても他は実行されるか（堅牢性）
 {
   const a = signal(0);
   let bRan = false;
@@ -181,7 +132,7 @@ function check(name: string, cond: unknown, detail = ""): void {
   check("[堅牢性] 例外時も後続effectが走る", bRan, `bRan=${bRan} threw=${threw}`);
 }
 
-// 17. flush 中に例外が出た後、システムが回復するか
+// 12. flush 中に例外が出た後、システムが回復するか
 {
   const a = signal(0);
   effect(() => { if (a.value === 99) throw new Error("boom2"); });
@@ -194,17 +145,7 @@ function check(name: string, cond: unknown, detail = ""): void {
   check("[堅牢性] 例外後もシステム回復", runs === 2, `runs=${runs}`);
 }
 
-// 18. reactive: Symbol キーも追跡する
-{
-  const sym = Symbol("s");
-  const state: Record<symbol, number> = reactive({ [sym]: 1 });
-  let seen, runs = 0;
-  effect(() => { runs++; seen = state[sym]; });
-  state[sym] = 2;
-  check("reactive Symbolキー反応", seen === 2 && runs === 2, `runs=${runs} seen=${seen}`);
-}
-
-// 19. 例外を投げる effect 内での signal 書き込みも、購読する別 effect に伝播する
+// 13. 例外を投げる effect 内での signal 書き込みも、購読する別 effect に伝播する
 {
   const trigger = signal(0);
   const data = signal(0);
@@ -215,6 +156,31 @@ function check(name: string, cond: unknown, detail = ""): void {
   });
   try { trigger.value = 1; } catch {}
   check("[堅牢性] 例外effect内のsignal書き込みも伝播", seen === 9, `seen=${seen}`);
+}
+
+// 14. store: 葉が signal になり、個別に反応する
+{
+  const s = store({ user: { name: "a", age: 20 }, ok: true });
+  let seen, runs = 0;
+  effect(() => { runs++; seen = s.user.age.value; });
+  check("store 初期値", seen === 20 && runs === 1, `seen=${seen}`);
+  s.user.age.value++;
+  check("store 葉の更新で反応", seen === 21 && runs === 2, `runs=${runs} seen=${seen}`);
+  runs = 0;
+  s.user.name.value = "b"; // 別の葉は無反応のはず
+  check("store 別の葉は無反応", runs === 0, `runs=${runs}`);
+}
+
+// 15. store: プリミティブはそのまま signal（再帰の終端）
+{
+  const s = store(5);
+  check("store プリミティブは signal", s.value === 5 && typeof s.peek === "function");
+}
+
+// 16. store: 配列の各要素も signal になる
+{
+  const s = store([1, 2]);
+  check("store 配列要素も signal", s[0].value === 1 && s[1].value === 2);
 }
 
 console.log(log.join("\n"));
