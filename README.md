@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot`
+- **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot` / `isSignal`
 - **DOM** — `h` / `tags` / `For` / `Show`
 
 ## インストール
@@ -170,9 +170,14 @@ stop(); // 配下の effect をすべて解放
 
 ## DOM API
 
+> **reactive な穴の渡し方** — `h` / `tags` / `` html`...` `` はいずれも、穴に
+> **関数**（`() => count.value`）か **シグナルそのもの**（`count`）を渡すと reactive に
+> なる。単一のシグナルなら `count`、複数の値を組み合わせる派生は `() => a.value + b.value`
+> のように関数で包む（`${...}` はその場で評価されるため、合成式は関数が必須）。
+
 ### `h(tag, props, children)`
 
-最小 hyperscript。props の値が関数なら reactive な属性・子になる。
+最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
 `children` は単一の子、または子の配列（ネストしていてもフラット化される）。
 
 ```js
@@ -212,7 +217,7 @@ document.body.append(el);
 
 タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
 静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
-関数の穴は reactive（属性・子テキスト）になり、`onXxx=${fn}` はイベントになる。
+関数 / シグナルの穴は reactive（属性・子テキスト）になり、`onXxx=${fn}` はイベントになる。
 
 ```js
 import { html } from "@kekemoto/signals/html";
@@ -222,14 +227,14 @@ const count = signal(0);
 
 const el = html`
   <div class="box">
-    <span>count: ${() => count.value}</span>
+    <span>count: ${count}</span>
     <button onClick=${() => count.value++}>+1</button>
   </div>`;
 
 document.body.append(el);
 ```
 
-- 関数の穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
+- 関数 / シグナルの穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
 - 属性は丸ごと（`class=${fn}`）でも部分（`class="box ${fn}"`）でも穴を置ける。
 - 子の穴には文字列・数値のほか、`Node`・配列・ネストした `` html`...` `` を差し込める。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。

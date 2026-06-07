@@ -6,6 +6,7 @@ export {
   reactive,
   onCleanup,
   createRoot,
+  isSignal,
   type Signal,
   type Memo,
 } from "./reactive.js";

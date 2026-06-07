@@ -9,7 +9,7 @@
 //   - 静的な構造は <template> でブラウザに一度だけパースさせる（構築は1回）
 //   - 穴(${...})だけを「属性／イベント／子」として後から配線し、関数なら effect を張る
 //   - h.ts と同じく、関数の穴だけが reactive。構造そのものは作り直さない。
-import { effect } from "./reactive.js";
+import { effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -67,6 +67,8 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
           el.addEventListener(name.slice(2), v as EventListener); // onclick → click
         } else if (typeof v === "function") {
           effect(() => setAttr(el, name, (v as () => unknown)()));
+        } else if (isSignal(v)) {
+          effect(() => setAttr(el, name, v.value)); // シグナル直接
         } else {
           setAttr(el, name, v);                   // null/false/真偽の意味を保つ
         }
@@ -89,17 +91,22 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
   return content.childNodes.length === 1 ? content.firstChild! : content;
 }
 
-/** "a ${x} b" のように穴を含む属性値を組み立てる。関数が混ざれば reactive。 */
+/** 穴の値を読む。関数なら呼び、シグナルなら .value、それ以外はそのまま。 */
+function read(v: unknown): unknown {
+  return typeof v === "function" ? (v as () => unknown)() : isSignal(v) ? v.value : v;
+}
+
+/** "a ${x} b" のように穴を含む属性値を組み立てる。関数 / シグナルが混ざれば reactive。 */
 function wireDynamicAttr(el: Element, name: string, value: string, values: unknown[]): void {
   const parts = value.split(ATTR_RE); // [lit, idx, lit, idx, lit, ...]
   const compose = () =>
-    parts.map((p, i) => {
-      if (i % 2 === 0) return p;       // 偶数は静的リテラル
-      const v = values[Number(p)];     // 奇数は穴の index
-      return String(typeof v === "function" ? (v as () => unknown)() : v);
-    }).join("");
-  // どれか1つでも関数なら毎回再計算、そうでなければ一度だけ設定する。
-  const reactive = parts.some((p, i) => i % 2 === 1 && typeof values[Number(p)] === "function");
+    parts.map((p, i) => (i % 2 === 0 ? p : String(read(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
+  // どれか1つでも関数 / シグナルなら毎回再計算、そうでなければ一度だけ設定する。
+  const reactive = parts.some((p, i) => {
+    if (i % 2 === 0) return false;
+    const v = values[Number(p)];
+    return typeof v === "function" || isSignal(v);
+  });
   if (reactive) effect(() => setAttr(el, name, compose()));
   else setAttr(el, name, compose());
 }
@@ -110,6 +117,11 @@ function toNode(child: unknown): Node {
   if (typeof child === "function") {
     const t = document.createTextNode("");
     effect(() => { t.data = String((child as () => unknown)()); });
+    return t;
+  }
+  if (isSignal(child)) {                 // シグナル直接: .value を購読して更新
+    const t = document.createTextNode("");
+    effect(() => { t.data = String(child.value); });
     return t;
   }
   if (child instanceof Node) return child;

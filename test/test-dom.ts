@@ -118,6 +118,51 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("html: 複数ルートは fragment", host.querySelectorAll("p").length === 2);
 }
 
+// === signal を直接渡す（関数ラップ不要）===
+{
+  const count = signal(0);
+  // h: 子・属性ともにシグナルそのものを渡せる
+  const el = h("div", { "data-n": count }, count);
+  check("h: signal を子に直接", el.textContent === "0");
+  check("h: signal を属性に直接", el.getAttribute("data-n") === "0");
+  count.value = 4;
+  check("h: signal 子の更新", el.textContent === "4");
+  check("h: signal 属性の更新", el.getAttribute("data-n") === "4");
+}
+{
+  const { span } = tags;
+  const count = signal(1);
+  const el = span(count) as HTMLElement;       // 位置引数の signal は props でなく子
+  check("tags: signal を子に直接", el.tagName === "SPAN" && el.textContent === "1");
+  count.value = 8;
+  check("tags: signal 子の更新", el.textContent === "8");
+}
+{
+  const count = signal(0);
+  const color = signal("red");
+  const el = html`<div class=${color}>${count}</div>` as HTMLElement;
+  check("html: signal を子に直接", el.textContent === "0");
+  check("html: signal を属性に直接", el.getAttribute("class") === "red");
+  count.value = 3; color.value = "blue";
+  check("html: signal 子の更新", el.textContent === "3");
+  check("html: signal 属性の更新", el.getAttribute("class") === "blue");
+}
+{
+  // 丸ごとの属性穴では false / null は h と同じく属性を外す（真偽属性の意味）
+  const on = signal<boolean>(false);
+  const el = html`<input disabled=${on}>` as HTMLElement;
+  check("html: signal=false で属性を外す", !el.hasAttribute("disabled"));
+  on.value = true;
+  check("html: signal=true で属性を付ける", el.getAttribute("disabled") === "");
+}
+{
+  const cls = signal("a");
+  const el = html`<div class="box ${cls}"></div>` as HTMLElement;
+  check("html: 部分埋め込みに signal 初期", el.getAttribute("class") === "box a");
+  cls.value = "b";
+  check("html: 部分埋め込みに signal 更新", el.getAttribute("class") === "box b");
+}
+
 // === For ===
 {
   const { ul, li, b, button } = tags;
