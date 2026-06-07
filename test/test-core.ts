@@ -2,6 +2,7 @@
 // 実行: node dist/test/test-core.js  (jsdom 不要)
 const mod = process.argv[2] || "../src/reactive.js";
 const { signal, effect, batch, memo } = await import(mod);
+const { store } = await import("../src/store.js");
 
 let pass = 0, fail = 0;
 const log: string[] = [];
@@ -155,6 +156,31 @@ function check(name: string, cond: unknown, detail = ""): void {
   });
   try { trigger.value = 1; } catch {}
   check("[堅牢性] 例外effect内のsignal書き込みも伝播", seen === 9, `seen=${seen}`);
+}
+
+// 14. store: 葉が signal になり、個別に反応する
+{
+  const s = store({ user: { name: "a", age: 20 }, ok: true });
+  let seen, runs = 0;
+  effect(() => { runs++; seen = s.user.age.value; });
+  check("store 初期値", seen === 20 && runs === 1, `seen=${seen}`);
+  s.user.age.value++;
+  check("store 葉の更新で反応", seen === 21 && runs === 2, `runs=${runs} seen=${seen}`);
+  runs = 0;
+  s.user.name.value = "b"; // 別の葉は無反応のはず
+  check("store 別の葉は無反応", runs === 0, `runs=${runs}`);
+}
+
+// 15. store: プリミティブはそのまま signal（再帰の終端）
+{
+  const s = store(5);
+  check("store プリミティブは signal", s.value === 5 && typeof s.peek === "function");
+}
+
+// 16. store: 配列の各要素も signal になる
+{
+  const s = store([1, 2]);
+  check("store 配列要素も signal", s[0].value === 1 && s[1].value === 2);
 }
 
 console.log(log.join("\n"));

@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `memo` / `onCleanup` / `createRoot` / `isSignal`
+- **コア** — `signal` / `effect` / `batch` / `memo` / `store` / `onCleanup` / `createRoot` / `isSignal`
 - **DOM** — `h` / `tags` / `For` / `Show`
 
 ## インストール
@@ -120,6 +120,24 @@ a.value = 6; // → 両 effect に 10 が流れる（計算は1回）
 ```
 
 > **軽い派生は普通の関数で書く**のが基本方針。複数箇所で読む重い計算だけ `memo` に差し替える。
+
+### `store(obj)`
+
+オブジェクトの **葉（プリミティブ等の非オブジェクト値）を `signal` に置き換えた、同じ形の木**を返す。ネストしたオブジェクト・配列は形を保ったまま再帰する。
+
+```js
+import { store, effect } from "@kekemoto/signals";
+
+const state = store({ user: { name: "Alice", age: 20 }, ok: true });
+
+effect(() => console.log(state.user.age.value)); // → 20
+
+state.user.age.value++; // → 21（この葉を読む effect / 穴だけ反応）
+```
+
+葉が `signal` そのものなので、`h` / `tags` / `` html`...` `` の穴には **`() =>` で包まず直接渡せる**（`span(state.user.name)`）。読み書きは `.value` 経由になる。
+
+> **構造変化は追跡しない** — キーの追加・削除や配列の `push` / `splice` は反応しない（`signal` は葉に張るため）。構造ごと差し替えたいなら `signal(obj)` を丸ごと持つ方が向く。
 
 ### `onCleanup(fn)`
 
@@ -298,7 +316,7 @@ effect(() => {
 （`dist/signals.global.js` / `.min.js`）を束ねる。
 
 ```
-src/    reactive.ts / h.ts / tags.ts / html.ts / for.ts / show.ts / index.ts
+src/    reactive.ts / store.ts / h.ts / tags.ts / html.ts / for.ts / show.ts / index.ts
 test/   test-core.ts / test-owner.ts / test-dom.ts
 ```
 
