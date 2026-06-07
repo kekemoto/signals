@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `memo` / `reactive` / `onCleanup` / `createRoot` / `isSignal`
+- **コア** — `signal` / `effect` / `batch` / `memo` / `onCleanup` / `createRoot` / `isSignal`
 - **DOM** — `h` / `tags` / `For` / `Show`
 
 ## インストール
@@ -120,23 +120,6 @@ a.value = 6; // → 両 effect に 10 が流れる（計算は1回）
 ```
 
 > **軽い派生は普通の関数で書く**のが基本方針。複数箇所で読む重い計算だけ `memo` に差し替える。
-
-### `reactive(target)`
-
-オブジェクトを Proxy で包み、プロパティ単位でリアクティブにする。
-
-```js
-import { reactive, effect } from "@kekemoto/signals";
-
-const state = reactive({ count: 0, name: "Alice" });
-
-effect(() => console.log(state.count));
-// → 0
-
-state.count++; // → 1（count だけ再実行、name を読む effect は無反応）
-```
-
-ネストしたオブジェクトも自動で reactive になる。キーの追加・削除も追跡する。
 
 ### `onCleanup(fn)`
 

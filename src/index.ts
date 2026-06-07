@@ -3,7 +3,6 @@ export {
   effect,
   batch,
   memo,
-  reactive,
   onCleanup,
   createRoot,
   isSignal,
