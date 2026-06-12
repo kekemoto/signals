@@ -179,11 +179,17 @@ function notify(subscribers: Subscribers): void {
 }
 
 // --- signal -----------------------------------------------------------------
+// signal() が返すセルに付ける非公開のブランド。isSignal はこの印で判定する。
+// 値そのものに意味はなく、「この Symbol キーを持つか」だけを見る。外部からは
+// この Symbol を参照できないので、偶然 peek を持つだけの無関係なオブジェクトを
+// signal と誤認しない（duck typing の取りこぼし対策）。
+const SIGNAL = Symbol("signal");
+
 // 値ひとつ＋購読者リストひとつのリアクティブセル。
 export function signal<T>(initial: T): Signal<T> {
   let value = initial;
   const subscribers: Subscribers = new Set();
-  return {
+  const cell: Signal<T> = {
     get value(): T {
       track(subscribers); // 読まれた → 依存登録
       return value;
@@ -195,13 +201,18 @@ export function signal<T>(initial: T): Signal<T> {
     },
     peek: () => value, // 追跡せずに読む
   };
+  // ブランドを付ける。non-enumerable にして spread / Object.keys / JSON に漏らさない。
+  Object.defineProperty(cell, SIGNAL, { value: true });
+  return cell;
 }
 
 // signal() が返すセルかどうかを判定する。h / tags / html で「関数の穴」と同じく
 // reactive に扱うため、シグナルを直接渡せる（${count} のように .value を省ける）。
-// peek を持つことを目印にする（プレーンなオブジェクトは peek を持たないので false）。
+// 非公開の SIGNAL ブランドの有無で判定する。peek の有無を見る duck typing だと
+// peek を持つ無関係なオブジェクト（イテレータ系ライブラリ等）を誤って signal 扱い
+// してしまうため、外部から付けられないブランドを目印にして判定を正確にする。
 export function isSignal(x: unknown): x is Signal<unknown> {
-  return x != null && typeof x === "object" && typeof (x as Signal<unknown>).peek === "function";
+  return typeof x === "object" && x !== null && SIGNAL in x;
 }
 
 // --- effect -----------------------------------------------------------------

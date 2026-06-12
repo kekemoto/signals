@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { batch, effect, memo, signal, untrack } from "../src/reactive.js";
+import { batch, effect, isSignal, memo, signal, untrack } from "../src/reactive.js";
 import { store } from "../src/store.js";
 
 test("signal の基本", () => {
@@ -345,4 +345,17 @@ test("store: プリミティブはそのまま signal（再帰の終端）", () 
 test("store: 配列の各要素も signal になる", () => {
   const s = store([1, 2]);
   assert.ok(s[0].value === 1 && s[1].value === 2, "store 配列要素も signal");
+});
+
+test("isSignal: signal / store の葉は true、無関係なオブジェクトは false (#31)", () => {
+  assert.equal(isSignal(signal(1)), true, "signal は signal");
+  assert.equal(isSignal(store(1)), true, "store の葉も signal");
+  // peek を持つだけの無関係なオブジェクトは signal 扱いしない（duck typing 対策）。
+  assert.equal(isSignal({ peek: () => 1 }), false, "peek を持つ別物は signal ではない");
+  assert.equal(isSignal({ value: 1, peek: () => 1 }), false, "value+peek でも signal ではない");
+  // memo は関数（object ではない）なので signal ではない。
+  assert.equal(isSignal(memo(() => 1)), false, "memo は signal ではない");
+  assert.equal(isSignal(null), false, "null は signal ではない");
+  assert.equal(isSignal(undefined), false, "undefined は signal ではない");
+  assert.equal(isSignal(5), false, "プリミティブは signal ではない");
 });
