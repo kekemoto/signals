@@ -1,230 +1,304 @@
 // test-core.ts — signal / effect / batch / memo の回帰テスト
-// 実行: node dist/test/test-core.js  (jsdom 不要)
-const mod = process.argv[2] || "../src/reactive.js";
-const { signal, effect, batch, memo } = await import(mod);
-const { store } = await import("../src/store.js");
+// 実行: node --test dist/test/  (jsdom 不要)
 
-let pass = 0, fail = 0;
-const log: string[] = [];
-function check(name: string, cond: unknown, detail = ""): void {
-  if (cond) { pass++; log.push(`  ok  ${name}`); }
-  else { fail++; log.push(`FAIL  ${name}  ${detail}`); }
-}
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { batch, effect, memo, signal } from "../src/reactive.js";
+import { store } from "../src/store.js";
 
-// 1. signal の基本
-{
+test("signal の基本", () => {
   const s = signal(1);
-  check("signal 初期値", s.value === 1);
+  assert.equal(s.value, 1, "signal 初期値");
   s.value = 2;
-  check("signal 書き込み", s.value === 2);
-  check("peek は同値", s.peek() === 2);
-}
+  assert.equal(s.value, 2, "signal 書き込み");
+  assert.equal(s.peek(), 2, "peek は同値");
+});
 
-// 2. effect は初回即実行、依存変化で再実行
-{
+test("effect は初回即実行、依存変化で再実行", () => {
   const s = signal(0);
-  let runs = 0, last;
-  effect(() => { runs++; last = s.value; });
-  check("effect 初回実行", runs === 1 && last === 0);
+  let runs = 0,
+    last;
+  effect(() => {
+    runs++;
+    last = s.value;
+  });
+  assert.equal(runs, 1, "effect 初回実行 (runs)");
+  assert.equal(last, 0, "effect 初回実行 (last)");
   s.value = 5;
-  check("effect 依存変化で再実行", runs === 2 && last === 5);
-}
+  assert.equal(runs, 2, "effect 依存変化で再実行 (runs)");
+  assert.equal(last, 5, "effect 依存変化で再実行 (last)");
+});
 
-// 3. 無変化なら再実行しない
-{
+test("無変化なら再実行しない", () => {
   const s = signal(0);
   let runs = 0;
-  effect(() => { s.value; runs++; });
+  effect(() => {
+    s.value;
+    runs++;
+  });
   s.value = 0;
-  check("無変化 set は再実行しない", runs === 1);
-}
+  assert.equal(runs, 1, "無変化 set は再実行しない");
+});
 
-// 4. dispose で購読解除
-{
+test("dispose で購読解除", () => {
   const s = signal(0);
   let runs = 0;
-  const dispose = effect(() => { s.value; runs++; });
+  const dispose = effect(() => {
+    s.value;
+    runs++;
+  });
   dispose();
   s.value = 1;
-  check("dispose 後は反応しない", runs === 1);
-}
+  assert.equal(runs, 1, "dispose 後は反応しない");
+});
 
-// 5. 動的依存（条件で読む signal が変わる）
-{
+test("動的依存（条件で読む signal が変わる）", () => {
   const cond = signal(true);
-  const a = signal("a"), b = signal("b");
-  let last, runs = 0;
-  effect(() => { runs++; last = cond.value ? a.value : b.value; });
-  check("動的依存 初期", last === "a" && runs === 1);
+  const a = signal("a"),
+    b = signal("b");
+  let last,
+    runs = 0;
+  effect(() => {
+    runs++;
+    last = cond.value ? a.value : b.value;
+  });
+  assert.equal(last, "a", "動的依存 初期 (last)");
+  assert.equal(runs, 1, "動的依存 初期 (runs)");
   b.value = "B";
-  check("動的依存 未参照のbは無反応", runs === 1);
+  assert.equal(runs, 1, "動的依存 未参照のbは無反応");
   cond.value = false;
-  check("動的依存 切替", last === "B" && runs === 2);
+  assert.equal(last, "B", "動的依存 切替 (last)");
+  assert.equal(runs, 2, "動的依存 切替 (runs)");
   a.value = "A";
-  check("動的依存 切替後 旧依存aは無反応", runs === 2);
-}
+  assert.equal(runs, 2, "動的依存 切替後 旧依存aは無反応");
+});
 
-// 6. batch は1回にまとめる
-{
-  const a = signal(1), b = signal(2);
-  let runs = 0, sum;
-  effect(() => { runs++; sum = a.value + b.value; });
+test("batch は1回にまとめる", () => {
+  const a = signal(1),
+    b = signal(2);
+  let runs = 0,
+    sum;
+  effect(() => {
+    runs++;
+    sum = a.value + b.value;
+  });
   runs = 0;
-  batch(() => { a.value = 10; b.value = 20; });
-  check("batch は1回だけ再実行", runs === 1, `runs=${runs}`);
-  check("batch 後の値", sum === 30);
-}
+  batch(() => {
+    a.value = 10;
+    b.value = 20;
+  });
+  assert.equal(runs, 1, "batch は1回だけ再実行");
+  assert.equal(sum, 30, "batch 後の値");
+});
 
-// 7. memo: 計算共有とキャッシュ
-{
-  const a = signal(1), b = signal(2);
+test("memo: 計算共有とキャッシュ", () => {
+  const a = signal(1),
+    b = signal(2);
   let calc = 0;
-  const sum = memo(() => { calc++; return a.value + b.value; });
-  check("memo 初期計算", sum() === 3 && calc === 1);
-  sum(); sum();
-  check("memo 複数読みでも再計算なし", calc === 1, `calc=${calc}`);
+  const sum = memo(() => {
+    calc++;
+    return a.value + b.value;
+  });
+  assert.equal(sum(), 3, "memo 初期計算 (値)");
+  assert.equal(calc, 1, "memo 初期計算 (回数)");
+  sum();
+  sum();
+  assert.equal(calc, 1, "memo 複数読みでも再計算なし");
   a.value = 10;
-  check("memo 入力変化で再計算", sum() === 12 && calc === 2, `calc=${calc}`);
-}
+  assert.equal(sum(), 12, "memo 入力変化で再計算 (値)");
+  assert.equal(calc, 2, "memo 入力変化で再計算 (回数)");
+});
 
-// 8. memo: value-cutoff（結果が同じなら下流は走らない）
-{
+test("memo: value-cutoff（結果が同じなら下流は走らない）", () => {
   const n = signal(2);
   const isEven = memo(() => n.value % 2 === 0);
   let runs = 0;
-  effect(() => { isEven(); runs++; });
-  check("cutoff 初期", runs === 1);
+  effect(() => {
+    isEven();
+    runs++;
+  });
+  assert.equal(runs, 1, "cutoff 初期");
   n.value = 4; // 偶数のまま → isEven は true のまま
-  check("cutoff 結果不変なら下流据え置き", runs === 1, `runs=${runs}`);
+  assert.equal(runs, 1, "cutoff 結果不変なら下流据え置き");
   n.value = 3; // 奇数へ
-  check("cutoff 結果変化で下流実行", runs === 2, `runs=${runs}`);
-}
+  assert.equal(runs, 2, "cutoff 結果変化で下流実行");
+});
 
-// 9. ネストした batch
-{
+test("ネストした batch", () => {
   const a = signal(0);
   let runs = 0;
-  effect(() => { a.value; runs++; });
+  effect(() => {
+    a.value;
+    runs++;
+  });
   runs = 0;
-  batch(() => { batch(() => { a.value = 1; }); a.value = 2; });
-  check("ネストbatchは外側で1回flush", runs === 1, `runs=${runs}`);
-}
+  batch(() => {
+    batch(() => {
+      a.value = 1;
+    });
+    a.value = 2;
+  });
+  assert.equal(runs, 1, "ネストbatchは外側で1回flush");
+});
 
-// 10. effect 連鎖（A が書き B が読む）でグリッチなし
-{
+test("effect 連鎖（A が書き B が読む）でグリッチなし", () => {
   const x = signal(1);
   const doubled = signal(0);
-  effect(() => { doubled.value = x.value * 2; });
-  let seen, runs = 0;
-  effect(() => { runs++; seen = doubled.value; });
+  effect(() => {
+    doubled.value = x.value * 2;
+  });
+  let seen,
+    runs = 0;
+  effect(() => {
+    runs++;
+    seen = doubled.value;
+  });
   x.value = 5;
-  check("連鎖伝播 最終値正しい", seen === 10, `seen=${seen}`);
-}
+  assert.equal(seen, 10, "連鎖伝播 最終値正しい");
+  assert.equal(runs, 2, "グリッチなし: 初回 + 変更後の計2回だけ走る");
+});
 
-// 11. flush 中に effect が例外を投げても他は実行されるか（堅牢性）
-{
+test("[堅牢性] 例外時も後続effectが走る", () => {
   const a = signal(0);
   let bRan = false;
-  effect(() => { if (a.value === 1) throw new Error("boom"); });
-  effect(() => { a.value; if (a.value === 1) bRan = true; });
+  effect(() => {
+    if (a.value === 1) throw new Error("boom");
+  });
+  effect(() => {
+    a.value;
+    if (a.value === 1) bRan = true;
+  });
   let threw = false;
-  try { a.value = 1; } catch { threw = true; }
-  check("[堅牢性] 例外時も後続effectが走る", bRan, `bRan=${bRan} threw=${threw}`);
-}
+  try {
+    a.value = 1;
+  } catch {
+    threw = true;
+  }
+  assert.ok(bRan, `例外時も後続effectが走る threw=${threw}`);
+});
 
-// 12. flush 中に例外が出た後、システムが回復するか
-{
+test("[堅牢性] 例外後もシステム回復", () => {
   const a = signal(0);
-  effect(() => { if (a.value === 99) throw new Error("boom2"); });
-  try { a.value = 99; } catch {}
+  effect(() => {
+    if (a.value === 99) throw new Error("boom2");
+  });
+  try {
+    a.value = 99;
+  } catch {}
   // 例外後、別の signal/effect が正常動作するか
   const b = signal(0);
   let runs = 0;
-  effect(() => { b.value; runs++; });
+  effect(() => {
+    b.value;
+    runs++;
+  });
   b.value = 1;
-  check("[堅牢性] 例外後もシステム回復", runs === 2, `runs=${runs}`);
-}
+  assert.equal(runs, 2, "例外後もシステム回復");
+});
 
-// 13. 例外を投げる effect 内での signal 書き込みも、購読する別 effect に伝播する
-{
+test("[堅牢性] 例外effect内のsignal書き込みも伝播", () => {
   const trigger = signal(0);
   const data = signal(0);
   let seen = -1;
-  effect(() => { seen = data.value; });          // data を購読
   effect(() => {
-    if (trigger.value === 1) { data.value = 9; throw new Error("boom"); }
+    seen = data.value;
+  }); // data を購読
+  effect(() => {
+    if (trigger.value === 1) {
+      data.value = 9;
+      throw new Error("boom");
+    }
   });
-  try { trigger.value = 1; } catch {}
-  check("[堅牢性] 例外effect内のsignal書き込みも伝播", seen === 9, `seen=${seen}`);
-}
+  try {
+    trigger.value = 1;
+  } catch {}
+  assert.equal(seen, 9, "例外effect内のsignal書き込みも伝播");
+});
 
-// 13b. 無限ループ保護: effect が自分の依存を書き換え続けると例外を投げる
-{
+test("[堅牢性] 自己ループは検出して throw", () => {
   let threw = false;
   try {
     const a = signal(0);
-    effect(() => { a.value = a.value + 1; }); // 読んで書く → 収束しない
-  } catch { threw = true; }
-  check("[堅牢性] 自己ループは検出して throw", threw);
-}
+    effect(() => {
+      a.value = a.value + 1;
+    }); // 読んで書く → 収束しない
+  } catch {
+    threw = true;
+  }
+  assert.ok(threw, "自己ループは検出して throw");
+});
 
-// 13c. 無限ループ保護: 相互に起こし合う effect も検出する
-{
+test("[堅牢性] 相互ループは検出して throw", () => {
   let threw = false;
   try {
-    const x = signal(0), y = signal(0);
-    effect(() => { x.value = y.value + 1; });
-    effect(() => { y.value = x.value + 1; });
-  } catch { threw = true; }
-  check("[堅牢性] 相互ループは検出して throw", threw);
-}
+    const x = signal(0),
+      y = signal(0);
+    effect(() => {
+      x.value = y.value + 1;
+    });
+    effect(() => {
+      y.value = x.value + 1;
+    });
+  } catch {
+    threw = true;
+  }
+  assert.ok(threw, "相互ループは検出して throw");
+});
 
-// 13d. 数パスで収束する正当な自己更新は許す（clamp 風）
-{
+test("[堅牢性] 収束する自己更新は通る", () => {
   let threw = false;
   const n = signal(100);
-  try { effect(() => { if (n.value > 10) n.value = 10; }); } catch { threw = true; }
-  check("[堅牢性] 収束する自己更新は通る", !threw && n.value === 10, `threw=${threw} n=${n.value}`);
-}
+  try {
+    effect(() => {
+      if (n.value > 10) n.value = 10;
+    });
+  } catch {
+    threw = true;
+  }
+  assert.ok(!threw && n.value === 10, `収束する自己更新は通る threw=${threw} n=${n.value}`);
+});
 
-// 13e. flush は世代順（再帰せず、今の世代を流し切ってから次の世代）
-{
+test("[堅牢性] flush は世代順（割り込まない）", () => {
   const a = signal(0);
   const order: string[] = [];
-  effect(() => { order.push("E1:" + a.value); });                       // a を購読
-  effect(() => { a.value; order.push("E2"); if (a.value === 1) a.value = 2; }); // 途中で a を書く
+  effect(() => {
+    order.push(`E1:${a.value}`);
+  }); // a を購読
+  effect(() => {
+    a.value;
+    order.push("E2");
+    if (a.value === 1) a.value = 2;
+  }); // 途中で a を書く
   order.length = 0;
   a.value = 1;
   // 世代順なら「E1(1) E2 | E1(2) E2」と区切られる（再帰なら割り込んで順序が乱れる）。
-  check("[堅牢性] flush は世代順（割り込まない）",
-    order.join(",") === "E1:1,E2,E1:2,E2", order.join(","));
-}
+  assert.equal(order.join(","), "E1:1,E2,E1:2,E2", "flush は世代順（割り込まない）");
+});
 
-// 14. store: 葉が signal になり、個別に反応する
-{
+test("store: 葉が signal になり、個別に反応する", () => {
   const s = store({ user: { name: "a", age: 20 }, ok: true });
-  let seen, runs = 0;
-  effect(() => { runs++; seen = s.user.age.value; });
-  check("store 初期値", seen === 20 && runs === 1, `seen=${seen}`);
+  let seen,
+    runs = 0;
+  effect(() => {
+    runs++;
+    seen = s.user.age.value;
+  });
+  assert.equal(seen, 20, "store 初期値 (値)");
+  assert.equal(runs, 1, "store 初期値 (回数)");
   s.user.age.value++;
-  check("store 葉の更新で反応", seen === 21 && runs === 2, `runs=${runs} seen=${seen}`);
+  assert.equal(seen, 21, "store 葉の更新で反応 (値)");
+  assert.equal(runs, 2, "store 葉の更新で反応 (回数)");
   runs = 0;
   s.user.name.value = "b"; // 別の葉は無反応のはず
-  check("store 別の葉は無反応", runs === 0, `runs=${runs}`);
-}
+  assert.equal(runs, 0, "store 別の葉は無反応");
+});
 
-// 15. store: プリミティブはそのまま signal（再帰の終端）
-{
+test("store: プリミティブはそのまま signal（再帰の終端）", () => {
   const s = store(5);
-  check("store プリミティブは signal", s.value === 5 && typeof s.peek === "function");
-}
+  assert.ok(s.value === 5 && typeof s.peek === "function", "store プリミティブは signal");
+});
 
-// 16. store: 配列の各要素も signal になる
-{
+test("store: 配列の各要素も signal になる", () => {
   const s = store([1, 2]);
-  check("store 配列要素も signal", s[0].value === 1 && s[1].value === 2);
-}
-
-console.log(log.join("\n"));
-console.log(`\n==> ${mod}\n    pass=${pass} fail=${fail}`);
-process.exit(fail > 0 ? 1 : 0);
+  assert.ok(s[0].value === 1 && s[1].value === 2, "store 配列要素も signal");
+});

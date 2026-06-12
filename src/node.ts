@@ -4,7 +4,10 @@ import { effect, isSignal } from "./reactive.js";
 /** 値を1つの Node に変換する。関数 / シグナルは reactive な範囲、配列はまとめて並べる。 */
 export function toNode(child: unknown): Node {
   if (child == null || child === false) return document.createTextNode("");
-  if (isSignal(child)) { const s = child; child = () => s.value; } // シグナル直接は関数に正規化
+  if (isSignal(child)) {
+    const s = child;
+    child = () => s.value;
+  } // シグナル直接は関数に正規化
   if (typeof child === "function") {
     // コメント2つで範囲を作り、返り値が何であれその間を再描画する。
     // Node / 配列を返せば構造ごと入れ替わる（${() => list.value.map(...)} が書ける）。
@@ -21,7 +24,8 @@ export function toNode(child: unknown): Node {
         (cur as Text).data = v == null || v === false ? "" : String(v); // テキスト使い回し
         return;
       }
-      while (start.nextSibling && start.nextSibling !== end) (start.nextSibling as ChildNode).remove();
+      while (start.nextSibling && start.nextSibling !== end)
+        (start.nextSibling as ChildNode).remove();
       end.before(toNode(v));
     });
     return frag;

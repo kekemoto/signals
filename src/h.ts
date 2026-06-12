@@ -4,14 +4,19 @@
 // 第1引数の props は省略できる（h("div", () => count.value) のように直接子を渡せる）。
 // 関数の子は Node / 配列も返せる（h("ul", () => list.value.map(...)) — html と同じ範囲再描画）。
 // 行の状態を保ちたいリストは For（key 付き差分）を使う。
+
+import { setAttr, toNode } from "./node.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
-import { toNode, setAttr } from "./node.js";
 
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
 type Renderable = string | number | boolean | null | undefined;
 
 /** props の値。関数 / シグナルなら reactive な属性、`onXxx` の関数はイベントハンドラ。 */
-export type PropValue = Renderable | EventListenerOrEventListenerObject | (() => Renderable) | Signal<Renderable>;
+export type PropValue =
+  | Renderable
+  | EventListenerOrEventListenerObject
+  | (() => Renderable)
+  | Signal<Renderable>;
 
 /** h(tag, props, ...) の props。`onXxx` はイベント、関数 / シグナルは reactive 属性。 */
 export type Props = Record<string, PropValue>;
@@ -22,11 +27,13 @@ export type Child = Node | Renderable | (() => Child) | Signal<Child> | Child[];
 /** 第1引数が「props オブジェクトか、それとも子か」を見分ける。
  *  文字列・数値・関数・配列・DOMノード・シグナルは子。プレーンな {} だけ props 扱い。 */
 export function isProps(x: unknown): x is Props {
-  return x != null
-    && typeof x === "object"      // 関数は "function" なのでここで除外される
-    && !Array.isArray(x)
-    && !(x instanceof Node)
-    && !isSignal(x);
+  return (
+    x != null &&
+    typeof x === "object" && // 関数は "function" なのでここで除外される
+    !Array.isArray(x) &&
+    !(x instanceof Node) &&
+    !isSignal(x)
+  );
 }
 
 export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElement {
@@ -37,16 +44,16 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
   const props = hasProps ? (args[0] as Props) : null;
   const children = hasProps ? args.slice(1) : args;
 
-  for (const key in (props || {})) {
+  for (const key in props || {}) {
     const v = (props as Props)[key];
     if (key.startsWith("on") && typeof v === "function") {
       el.addEventListener(key.slice(2).toLowerCase(), v as EventListener); // onClick → click
     } else if (typeof v === "function") {
-      effect(() => setAttr(el, key, (v as () => Renderable)()));            // reactive な属性（関数）
+      effect(() => setAttr(el, key, (v as () => Renderable)())); // reactive な属性（関数）
     } else if (isSignal(v)) {
-      effect(() => setAttr(el, key, v.value as Renderable));               // reactive な属性（シグナル直接）
+      effect(() => setAttr(el, key, v.value as Renderable)); // reactive な属性（シグナル直接）
     } else {
-      setAttr(el, key, v);                                                  // 静的な属性
+      setAttr(el, key, v); // 静的な属性
     }
   }
 

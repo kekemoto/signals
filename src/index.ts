@@ -1,23 +1,23 @@
 export {
-  signal,
-  effect,
+  type DefineOptions,
+  defineElement,
+  type Setup,
+  type SetupContext,
+} from "./element.js";
+export { For } from "./for.js";
+export { type Child, h, type Props, type PropValue } from "./h.js";
+export { html } from "./html.js";
+export {
   batch,
+  createRoot,
+  effect,
+  isSignal,
+  type Memo,
   memo,
   onCleanup,
-  createRoot,
-  isSignal,
   type Signal,
-  type Memo,
+  signal,
 } from "./reactive.js";
-export { store, type Store } from "./store.js";
-export { h, type Props, type PropValue, type Child } from "./h.js";
-export { tags, type TagBuilder } from "./tags.js";
-export { html } from "./html.js";
-export { For } from "./for.js";
 export { Show } from "./show.js";
-export {
-  defineElement,
-  type DefineOptions,
-  type SetupContext,
-  type Setup,
-} from "./element.js";
+export { type Store, store } from "./store.js";
+export { type TagBuilder, tags } from "./tags.js";

@@ -6,6 +6,22 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint & format check (Biome)
+        run: npm run lint
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -29,10 +45,8 @@ jobs:
         run: npm run build
 
       - name: Core & owner tests
-        run: |
-          node dist/test/test-core.js
-          node dist/test/test-owner.js
+        run: node --test dist/test/test-core.js dist/test/test-owner.js
 
       - name: DOM tests (jsdom; Node >= 20)
         if: matrix.node-version != '18'
-        run: node dist/test/test-dom.js
+        run: node --test dist/test/test-dom.js

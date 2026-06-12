@@ -13,13 +13,14 @@
 //   - 構造変化は追跡しない。キーの追加・削除や配列の push/splice は反応しない
 //     （signal は葉に張るので、入れ物そのものの形が変わるのは対象外）。
 //     構造ごと差し替えたいなら signal(obj) を丸ごと持つ方が向く。
-import { signal, type Signal } from "./reactive.js";
+import { type Signal, signal } from "./reactive.js";
 
 /** store() の戻り値型。オブジェクトは同じ形のまま、葉は Signal<T> になる。 */
-export type Store<T> =
-  T extends (...args: never[]) => unknown ? Signal<T>   // 関数は葉として signal に
-  : T extends object ? { [K in keyof T]: Store<T[K]> }  // オブジェクト / 配列は再帰
-  : Signal<T>;                                          // プリミティブは葉
+export type Store<T> = T extends (...args: never[]) => unknown
+  ? Signal<T> // 関数は葉として signal に
+  : T extends object
+    ? { [K in keyof T]: Store<T[K]> } // オブジェクト / 配列は再帰
+    : Signal<T>; // プリミティブは葉
 
 /** オブジェクトの葉を signal に置き換えた、同じ形の木を返す。 */
 export function store<T>(obj: T): Store<T> {
