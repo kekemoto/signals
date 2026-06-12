@@ -744,7 +744,31 @@ test("defineElement: 拾われない light DOM の子は描画されない", asy
   el.remove();
   await tick(); // 切断を確定させて dispose
   assert.ok(!el.querySelector(".own"), "defineElement: dispose で描画ノードが消える");
-  assert.equal(el.childNodes.length, 0, "defineElement: dispose で動的追加した子も消える");
+  assert.ok(!el.querySelector(".added"), "defineElement: dispose で動的追加した子も消える");
+  // 利用者が書いた元の light DOM の子は dispose 時に host へ戻る（再接続のため）。
+  assert.equal(el.childNodes.length, 1, "defineElement: dispose で元の light DOM の子は戻る");
+  assert.ok(!!el.querySelector(".user"), "defineElement: 戻るのは退避していた元の子");
+});
+test("defineElement: 再接続で slot 内容が復元される", async () => {
+  const { div } = tags;
+  defineElement("x-reslot", ({ slot }) => div({ class: "named" }, slot("title")));
+  const el = document.createElement("x-reslot");
+  el.innerHTML = `<h2 slot="title">見出し</h2>`;
+  document.body.append(el);
+  assert.equal(
+    el.querySelector(".named h2")?.textContent,
+    "見出し",
+    "reslot: 初回接続で slot が投影される",
+  );
+
+  el.remove();
+  await tick(); // 切断を確定させて dispose（元の子を host へ戻す）
+  document.body.append(el); // 別の場所へ再接続
+  assert.equal(
+    el.querySelector(".named h2")?.textContent,
+    "見出し",
+    "reslot: 再接続でも slot の中身が復元される（永久に消えない）",
+  );
 });
 test("defineElement: ctx.slot で light DOM の子を投影", () => {
   const { div, header, section } = tags;

@@ -20,6 +20,9 @@
 //     isConnected=false なら本当に切り離されたと判断して dispose する。
 //     DOM 内での「移動」は disconnect→connect が連続して起きるだけなので、状態は保たれる。
 //     本当に切り離してから別の場所へ再接続した場合は setup を作り直す（状態はリセット）。
+//   - dispose 時には、接続時に退避した元の light DOM の子（利用者が書いた slot 入力）を
+//     host へ戻す。setup の出力や接続後に動的追加した子は破棄するが、利用者の入力は復元するので、
+//     再接続は初回接続と同じ意味になる（slot の中身が再接続で永久に消えない）。
 import { createRoot, onCleanup, type Signal, signal } from "./reactive.js";
 
 /** defineElement のオプション。 */
@@ -54,17 +57,22 @@ export interface SetupContext {
 /** Custom Element の中身を組む関数。createRoot 内で1回呼ばれ、返した Node がマウントされる。 */
 export type Setup = (ctx: SetupContext) => Node | null | undefined | void;
 
-// host に紐づく文脈（host + ヘルパー）を作る。
+// host に紐づく文脈（host + ヘルパー）と、退避した元の light DOM の子を作る。
 // MutationObserver は最初に prop() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
-function makeContext(host: HTMLElement): SetupContext {
+// lightChildren は dispose 時に host へ戻すため呼び出し側へ返す（再接続を初回接続と同じにする）。
+function makeContext(host: HTMLElement): {
+  ctx: SetupContext;
+  lightChildren: ChildNode[];
+} {
   const signals = new Map<string, Signal<unknown>>();
   let observer: MutationObserver | null = null;
   // 接続時点の light DOM の子を host から外して退避する（slot 入力）。
-  // slot() が拾ったものだけが setup の出力経由で描画され、拾われなかったものは戻されない＝描画されない。
+  // slot() が拾ったものだけが setup の出力経由で描画され、拾われなかったものは表示されない。
+  // 退避した子は dispose 時に host へ戻され、再接続時に改めて投影される。
   const lightChildren = [...host.childNodes];
   host.replaceChildren();
 
-  return {
+  const ctx: SetupContext = {
     host,
     slot(name?: string): DocumentFragment {
       const frag = document.createDocumentFragment();
@@ -122,6 +130,8 @@ function makeContext(host: HTMLElement): SetupContext {
       return sig as Signal<T>;
     },
   };
+
+  return { ctx, lightChildren };
 }
 
 /**
@@ -138,12 +148,16 @@ export function defineElement(
 ): CustomElementConstructor {
   class ReactiveElement extends HTMLElement {
     #dispose: (() => void) | null = null;
+    // 接続時に退避した元の light DOM の子。dispose 時に host へ戻すため保持する。
+    #lightChildren: ChildNode[] | null = null;
 
     connectedCallback(): void {
       if (this.#dispose) return; // 既にマウント済み（移動による再接続もここで弾く）
       createRoot((dispose) => {
         this.#dispose = dispose;
-        const node = setup(makeContext(this));
+        const { ctx, lightChildren } = makeContext(this);
+        this.#lightChildren = lightChildren;
+        const node = setup(ctx);
         if (node != null) this.append(node);
       });
     }
@@ -155,7 +169,11 @@ export function defineElement(
         if (this.isConnected) return; // 移動だった → 何もしない（状態を保つ）
         this.#dispose?.(); // root を畳む（effect / MutationObserver / onCleanup を全解放）
         this.#dispose = null;
-        this.replaceChildren(); // 中身を空にする（通常タグ同様、サブツリーごと破棄）。再接続時は setup し直す
+        // 退避した元の子（利用者が書いた slot 入力）を host へ戻す。setup の出力や接続後に
+        // 動的追加した子は捨てるが、利用者の入力は復元するので再接続が初回接続と同じになる。
+        const saved = this.#lightChildren ?? [];
+        this.#lightChildren = null;
+        this.replaceChildren(...saved);
       });
     }
   }
