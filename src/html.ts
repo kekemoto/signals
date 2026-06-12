@@ -8,8 +8,10 @@
 // 仕組み:
 //   - 静的な構造は <template> でブラウザに一度だけパースさせる（構築は1回）
 //   - 穴(${...})だけを「属性／イベント／子」として後から配線し、関数なら effect を張る
-//   - h.ts と同じく、関数の穴だけが reactive。構造そのものは作り直さない。
+//   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
+//     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 import { effect, isSignal } from "./reactive.js";
+import { toNode, setAttr } from "./node.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -109,33 +111,6 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
   });
   if (reactive) effect(() => setAttr(el, name, compose()));
   else setAttr(el, name, compose());
-}
-
-/** 穴の値を1つの Node に変換する。関数は reactive なテキスト、配列はまとめて並べる。 */
-function toNode(child: unknown): Node {
-  if (child == null || child === false) return document.createTextNode("");
-  if (typeof child === "function") {
-    const t = document.createTextNode("");
-    effect(() => { t.data = String((child as () => unknown)()); });
-    return t;
-  }
-  if (isSignal(child)) {                 // シグナル直接: .value を購読して更新
-    const t = document.createTextNode("");
-    effect(() => { t.data = String(child.value); });
-    return t;
-  }
-  if (child instanceof Node) return child;
-  if (Array.isArray(child)) {
-    const frag = document.createDocumentFragment();
-    for (const c of child.flat(Infinity)) frag.append(toNode(c));
-    return frag;
-  }
-  return document.createTextNode(String(child));
-}
-
-function setAttr(el: Element, key: string, v: unknown): void {
-  if (v == null || v === false) el.removeAttribute(key);
-  else el.setAttribute(key, v === true ? "" : String(v));
 }
 
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */
