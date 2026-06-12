@@ -219,14 +219,6 @@ README のコード片だけで、動かして試せるものがない。
 **対応案**: `let cache: Signal<T> | undefined` ＋ 読み口での未初期化チェック、
 あるいは sentinel 値を使った素直な初期化に書き換える。挙動は変えずに前提を減らせる。
 
-### 31. `isSignal` が duck typing（`peek` を持てば signal 扱い） [バグ寄り]
-
-`peek` メソッドを持つ無関係なオブジェクト（イテレータ系ライブラリ等）を穴に渡すと
-誤って reactive 扱いになる。
-
-**対応案**: `const SIGNAL = Symbol()` のブランドプロパティを signal に付けて判定する。
-仕様として明確になり、型ガードも正確になる。
-
 ### 32. `memo` の読み口が `signal` と非対称 [改善]
 
 signal は `.value` / `.peek()`、memo は関数呼び出しで `peek` なし・`dispose`
