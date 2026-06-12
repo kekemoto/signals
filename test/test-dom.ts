@@ -9,6 +9,7 @@ const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).document = dom.window.document;
 (globalThis as any).Node = dom.window.Node;
 (globalThis as any).HTMLElement = dom.window.HTMLElement;
+(globalThis as any).HTMLUnknownElement = dom.window.HTMLUnknownElement;
 (globalThis as any).customElements = dom.window.customElements;
 (globalThis as any).MutationObserver = dom.window.MutationObserver;
 
@@ -89,6 +90,20 @@ test("tags: camelCase → kebab-case 変換", () => {
   assert.equal(el.tagName.toLowerCase(), "my-card", "tags: myCard → my-card");
   assert.ok(el.id === "c" && el.textContent === "x", "tags: kebab 要素にも props/子が効く");
   assert.equal(tags.div().tagName, "DIV", "tags: 単語1つはそのまま");
+});
+test("tags: 標準タグの camelCase は kebab 変換しない", () => {
+  assert.equal(
+    tags.textArea().tagName,
+    "TEXTAREA",
+    "tags: textArea → <textarea>（text-area にしない）",
+  );
+  assert.equal(tags.fieldSet().tagName, "FIELDSET", "tags: fieldSet → <fieldset>");
+  assert.equal(tags.optGroup().tagName, "OPTGROUP", "tags: optGroup → <optgroup>");
+  assert.equal(
+    tags.myCard().tagName,
+    "MY-CARD",
+    "tags: 未知名は従来どおり kebab で Custom Element",
+  );
 });
 
 // === html (tagged template literal) ===
@@ -355,6 +370,46 @@ test("For: 描画・並べ替え・追加・削除", () => {
   items.value = items.value.filter((i) => i.id !== "a"); // 削除
   assert.ok(liByID("a") === null && ids() === "cbd", `For: 削除で該当行だけ消える ids=${ids()}`);
 });
+test("For: 同位置のノードは insertBefore しない", () => {
+  const { ul, li } = tags;
+  const items = signal([{ id: "a" }, { id: "b" }, { id: "c" }]);
+  const el = mount();
+  const list = ul(
+    For(
+      () => items.value,
+      (i) => i.id,
+      (item) => li({ "data-id": item.id }, item.id),
+    ),
+  );
+  el.append(list);
+
+  // insertBefore を数える（DocumentFragment 挿入後の並べ替えだけを観測したい）
+  let inserts = 0;
+  const orig = list.insertBefore.bind(list);
+  list.insertBefore = ((node: Node, ref: Node | null) => {
+    inserts++;
+    return orig(node, ref);
+  }) as typeof list.insertBefore;
+
+  const ids = () => [...el.querySelectorAll("li")].map((x) => x.getAttribute("data-id")).join("");
+
+  // 同じ配列を入れ替えるが順序は不変 → insertBefore はゼロ回
+  items.value = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  assert.equal(inserts, 0, "For: 順序不変なら insertBefore しない");
+  assert.equal(ids(), "abc", "For: 順序不変で並びも保たれる");
+
+  // 末尾追加 → 追加した1ノードだけ insertBefore
+  inserts = 0;
+  items.value = [...items.value, { id: "d" }];
+  assert.equal(inserts, 1, "For: 末尾追加は1回だけ insertBefore");
+  assert.equal(ids(), "abcd", "For: 末尾追加で並びが正しい");
+
+  // 並べ替え → 結果が正しい（移動回数は最小でなくてよい）
+  inserts = 0;
+  items.value = [items.value[3], items.value[0], items.value[1], items.value[2]]; // d,a,b,c
+  assert.equal(ids(), "dabc", "For: 並べ替えで順序が更新");
+  assert.ok(inserts > 0 && inserts < 4, `For: 全ノード移動はしない inserts=${inserts}`);
+});
 test("For: 重複キーで throw", () => {
   const { ul, li } = tags;
   const items = signal([{ id: "x" }, { id: "x" }]);
@@ -608,6 +663,32 @@ test("setAttr: checked はプロパティ false で外れる", () => {
   assert.equal(el.checked, true, "setAttr: checked 初期値");
   on.value = false;
   assert.equal(el.checked, false, "setAttr: checked false でプロパティが外れる");
+});
+test("setAttr: aria-* / data-* の真偽値は文字列化（false でも残す）", () => {
+  const hidden = signal(true);
+  const el = h("div", { "aria-hidden": () => hidden.value, "data-open": false });
+  assert.equal(el.getAttribute("aria-hidden"), "true", 'setAttr: aria-* の true は "true"');
+  assert.equal(
+    el.getAttribute("data-open"),
+    "false",
+    'setAttr: data-* の false は "false"（削除しない）',
+  );
+  hidden.value = false;
+  assert.equal(
+    el.getAttribute("aria-hidden"),
+    "false",
+    'setAttr: aria-* の false は "false" として残る',
+  );
+});
+test("toNode: 子の true / false はどちらも非表示", () => {
+  const flag = signal<boolean>(true);
+  const el = h("span", "[", () => flag.value, "]");
+  assert.equal(el.textContent, "[]", "toNode: true の子は描かない（false と対称）");
+  flag.value = false;
+  assert.equal(el.textContent, "[]", "toNode: false の子も描かない");
+  // 静的な真偽値の子もスキップ（empty text すら足さない）
+  const el2 = h("span", "x", true, false);
+  assert.equal(el2.childNodes.length, 1, "h: 静的な真偽値の子は append しない");
 });
 test("defineElement: ctx.host で要素自身に触れる", () => {
   const { div } = tags;

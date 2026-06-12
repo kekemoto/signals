@@ -59,8 +59,15 @@ export function For<T>(
       }
     }
 
-    // 3. 新しい順序に並べ替え（end の手前へ順に挿入＝使い回しノードは移動するだけ）
-    for (const node of nodes) parent.insertBefore(node, end);
+    // 3. 新しい順序に並べ替える。末尾から見て、既に正しい位置にあるノードは動かさない。
+    //    （変更なし・末尾追加は insertBefore ゼロ回で済む。Custom Element の無駄な
+    //     disconnect → connect も避けられる。）
+    let nextNode: Node = end;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const node = nodes[i];
+      if (node.nextSibling !== nextNode) parent.insertBefore(node, nextNode);
+      nextNode = node;
+    }
 
     entries = next;
   });
