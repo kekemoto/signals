@@ -664,21 +664,25 @@ test("setAttr: checked はプロパティ false で外れる", () => {
   on.value = false;
   assert.equal(el.checked, false, "setAttr: checked false でプロパティが外れる");
 });
-test("setAttr: aria-* / data-* の真偽値は文字列化（false でも残す）", () => {
-  const hidden = signal(true);
-  const el = h("div", { "aria-hidden": () => hidden.value, "data-open": false });
-  assert.equal(el.getAttribute("aria-hidden"), "true", 'setAttr: aria-* の true は "true"');
+test("setAttr: aria-*/data-* も真偽値は全キー共通（false=削除で付け外しできる）", () => {
+  // 真偽値の意味は他の属性と同じ: true=空文字（present）/ false=削除（absent）。
+  const on = signal(true);
+  const el = h("div", { "data-on": () => on.value });
+  assert.equal(el.getAttribute("data-on"), "", "setAttr: data-* の true は空文字");
+  on.value = false;
   assert.equal(
-    el.getAttribute("data-open"),
-    "false",
-    'setAttr: data-* の false は "false"（削除しない）',
+    el.hasAttribute("data-on"),
+    false,
+    "setAttr: data-* の false で外れる（付け外し可）",
   );
-  hidden.value = false;
-  assert.equal(
-    el.getAttribute("aria-hidden"),
-    "false",
-    'setAttr: aria-* の false は "false" として残る',
-  );
+  on.value = true;
+  assert.equal(el.hasAttribute("data-on"), true, "setAttr: data-* を再び付けられる");
+});
+test('setAttr: "false" という文字列はそのまま属性に書ける（aria-hidden=false）', () => {
+  // "false" 自体を残したいときは真偽値ではなく文字列を渡す。
+  const el = h("div", { "aria-hidden": "false", "data-flag": "true" });
+  assert.equal(el.getAttribute("aria-hidden"), "false", 'setAttr: 文字列 "false" はそのまま');
+  assert.equal(el.getAttribute("data-flag"), "true", 'setAttr: 文字列 "true" はそのまま');
 });
 test("toNode: 子の true / false はどちらも非表示", () => {
   const flag = signal<boolean>(true);
