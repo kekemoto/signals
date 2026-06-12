@@ -222,7 +222,7 @@ document.body.append(el);
 
 タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
 静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
-関数 / シグナルの穴は reactive（属性・子テキスト）になり、`onXxx=${fn}` はイベントになる。
+関数 / シグナルの穴は reactive（属性・子）になり、`onXxx=${fn}` はイベントになる。
 
 ```js
 import { html } from "@kekemoto/signals/html";
@@ -242,10 +242,23 @@ document.body.append(el);
 - 関数 / シグナルの穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
 - 属性は丸ごと（`class=${fn}`）でも部分（`class="box ${fn}"`）でも穴を置ける。
 - 子の穴には文字列・数値のほか、`Node`・配列・ネストした `` html`...` `` を差し込める。
+- 子の関数穴は `Node` / 配列も返せる。素の `.map` でリスト、三項演算子で条件分岐が書ける。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
 
-> 構造そのものは作り直さず、穴だけを `effect` で更新する（`h` と同じ方針）。
-> リスト・条件表示は `For` / `Show` を子の穴に置いて組み合わせる。
+```js
+const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);
+const ok = signal(false);
+
+const view = html`
+  <div>
+    <ul>${() => todos.value.map(t => html`<li>${t.text}</li>`)}</ul>
+    ${() => (ok.value ? html`<p>OK</p>` : null)}
+  </div>`;
+```
+
+> 子の関数穴は更新のたびに範囲を**全部作り直す**（除去された中身の `effect` は自動 dispose）。
+> 並べ替え・挿入しても行の状態（input・フォーカス・行ローカル signal）を保ちたいリストは、
+> key 付き差分の `For` を子の穴に置く。
 
 ### `For(items, keyFn, render)`
 

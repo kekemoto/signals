@@ -188,6 +188,57 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("html: 部分埋め込みに signal 更新", el.getAttribute("class") === "box b");
 }
 
+// === html: 関数の穴が Node / 配列を返す（範囲再描画）===
+{
+  const items = signal([{ id: 1, t: "A" }, { id: 2, t: "B" }]);
+  const el = html`<ul>${() => items.value.map(i => html`<li>${i.t}</li>`)}</ul>` as HTMLElement;
+  const texts = () => [...el.querySelectorAll("li")].map(x => x.textContent).join("");
+  check("html: 関数穴で .map リスト初期", texts() === "AB", `texts=${texts()}`);
+  items.value = [...items.value, { id: 3, t: "C" }];
+  check("html: 関数穴で .map リスト更新", texts() === "ABC", `texts=${texts()}`);
+  items.value = [];
+  check("html: 関数穴で空配列", texts() === "", `texts=${texts()}`);
+}
+{
+  const ok = signal(false);
+  const el = html`<div>${() => (ok.value ? html`<p>yes</p>` : null)}</div>` as HTMLElement;
+  check("html: 関数穴の条件分岐 初期(null)", el.querySelector("p") === null);
+  ok.value = true;
+  check("html: 関数穴の条件分岐 表示", el.querySelector("p")?.textContent === "yes");
+  ok.value = false;
+  check("html: 関数穴の条件分岐 非表示", el.querySelector("p") === null);
+}
+{
+  // 消えた分岐の effect は所有権ツリーで自動 dispose される
+  const ok = signal(true);
+  const inner = signal(0);
+  let runs = 0;
+  const el = html`<div>${() =>
+    ok.value ? html`<b>${() => { runs++; return inner.value; }}</b>` : null}</div>` as HTMLElement;
+  check("html: ネストした穴も reactive", el.querySelector("b")?.textContent === "0" && runs === 1);
+  inner.value = 1;
+  check("html: ネストした穴の更新", el.querySelector("b")?.textContent === "1" && runs === 2);
+  ok.value = false;          // 分岐ごと除去
+  inner.value = 2;           // 死んだ分岐の signal を更新しても…
+  check("html: 除去した分岐の effect は止まる", runs === 2, `runs=${runs}`);
+}
+{
+  // プリミティブの関数穴はテキストノードを使い回す（fast path）
+  const count = signal(0);
+  const el = html`<span>${() => count.value}</span>` as HTMLElement;
+  const t = [...el.childNodes].find(n => n.nodeType === 3);
+  count.value = 9;
+  check("html: プリミティブ穴はノード使い回し", el.textContent === "9" && [...el.childNodes].includes(t!));
+}
+{
+  // シグナル直接の穴に Node が入っていても動く（関数に正規化される）
+  const node = signal<Node>(html`<em>x</em>`);
+  const el = html`<div>${node}</div>` as HTMLElement;
+  check("html: signal 直接で Node 初期", el.querySelector("em")?.textContent === "x");
+  node.value = html`<strong>y</strong>`;
+  check("html: signal 直接で Node 更新", el.querySelector("strong")?.textContent === "y" && el.querySelector("em") === null);
+}
+
 // === For ===
 {
   const { ul, li, b, button } = tags;

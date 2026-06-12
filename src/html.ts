@@ -8,7 +8,8 @@
 // 仕組み:
 //   - 静的な構造は <template> でブラウザに一度だけパースさせる（構築は1回）
 //   - 穴(${...})だけを「属性／イベント／子」として後から配線し、関数なら effect を張る
-//   - h.ts と同じく、関数の穴だけが reactive。構造そのものは作り直さない。
+//   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
+//     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 import { effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
@@ -111,18 +112,30 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
   else setAttr(el, name, compose());
 }
 
-/** 穴の値を1つの Node に変換する。関数は reactive なテキスト、配列はまとめて並べる。 */
+/** 穴の値を1つの Node に変換する。関数は reactive な範囲、配列はまとめて並べる。 */
 function toNode(child: unknown): Node {
   if (child == null || child === false) return document.createTextNode("");
+  if (isSignal(child)) { const s = child; child = () => s.value; } // シグナル直接は関数に正規化
   if (typeof child === "function") {
-    const t = document.createTextNode("");
-    effect(() => { t.data = String((child as () => unknown)()); });
-    return t;
-  }
-  if (isSignal(child)) {                 // シグナル直接: .value を購読して更新
-    const t = document.createTextNode("");
-    effect(() => { t.data = String(child.value); });
-    return t;
+    // コメント2つで範囲を作り、返り値が何であれその間を再描画する。
+    // Node / 配列を返せば構造ごと入れ替わる（${() => list.value.map(...)} が書ける）。
+    // 中で張られた effect は所有権ツリーが再実行時に自動 dispose する。
+    const start = document.createComment("hole");
+    const end = document.createComment("/hole");
+    const frag = document.createDocumentFragment();
+    frag.append(start, end);
+    effect(() => {
+      const v = (child as () => unknown)();
+      const cur = start.nextSibling;
+      const isPrim = !(v instanceof Node) && !Array.isArray(v) && typeof v !== "function";
+      if (isPrim && cur !== end && cur?.nodeType === 3 && cur.nextSibling === end) {
+        (cur as Text).data = v == null || v === false ? "" : String(v); // テキスト使い回し
+        return;
+      }
+      while (start.nextSibling && start.nextSibling !== end) (start.nextSibling as ChildNode).remove();
+      end.before(toNode(v));
+    });
+    return frag;
   }
   if (child instanceof Node) return child;
   if (Array.isArray(child)) {
