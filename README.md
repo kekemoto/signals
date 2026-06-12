@@ -202,7 +202,7 @@ stop(); // 配下の effect をすべて解放
 
 ### `h(tag, props?, ...children)`
 
-最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
+最小 hyperscript。props や子の値が関数 / シグナルなら reactive なプロパティ・子になる。
 子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、第2引数が
 プレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
 
@@ -212,7 +212,7 @@ import { signal } from "@kekemoto/signals";
 
 const count = signal(0);
 
-const el = h("div", { class: "box" },
+const el = h("div", { className: "box" },
   h("span", () => `count: ${count.value}`),   // props 省略
   h("button", { onClick: () => count.value++ }, "+1"),
 );
@@ -231,7 +231,7 @@ const list = h("ul", () => todos.value.map(t => h("li", t.text)));
 
 ### `tags`
 
-`h` を Proxy で包んだタグビルダー DSL。第1引数が props ならそれを属性に、以降を子にする
+`h` を Proxy で包んだタグビルダー DSL。第1引数が props ならそれを DOM プロパティに、以降を子にする
 （props は省略可）。**プロパティ名の camelCase は kebab-case のタグ名に変換される**ので、
 ハイフン必須の Custom Element も `tags.myCard(...)`（→ `<my-card>`）と書ける。
 
@@ -255,7 +255,7 @@ document.body.append(el);
 
 タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
 静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
-関数 / シグナルの穴は reactive（属性・子）になり、`onXxx=${fn}` はイベントになる。
+関数 / シグナルの穴は reactive（プロパティ・子）になり、`onXxx=${fn}` はイベントになる。
 
 ```js
 import { html } from "@kekemoto/signals/html";
@@ -272,18 +272,34 @@ const el = html`
 document.body.append(el);
 ```
 
-- 関数 / シグナルの穴は reactive、それ以外は静的（`null` / `false` は属性を外す・子を描かない）。
-- 属性は丸ごと（`class=${fn}`）でも部分（`class="box ${fn}"`）でも穴を置ける。
+- 関数 / シグナルの穴は reactive、それ以外は静的（真偽値の子はどちらも描かない）。
+- 穴は値の丸ごと（`id=${fn}`）でも部分（`title="box ${fn}"`）でも置ける。
+- 静的に書いた属性（`class="box"` など）はパーサがそのまま属性にする。
 - 子の穴には文字列・数値のほか、`Node`・配列・ネストした `` html`...` `` を差し込める。
 - 子の関数穴は `Node` / 配列も返せる。素の `.map` でリスト、三項演算子で条件分岐が書ける。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
 
-> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: 設定する値（関数・シグナルなら
-> その評価結果）が**オブジェクト・配列**なら、属性ではなく DOM **プロパティ**に代入される
-> （`el.items = [...]` — 属性は文字列しか運べないため。Custom Element にリッチな値を渡す口）。
-> また **`value` / `checked` / `selected` / `disabled`** は属性だと「初期値」しか変わらないため、
-> 常にプロパティを更新する（ユーザーが input に入力した後でも signal の変更が画面に反映される）。
-> それ以外のキーは従来どおり属性になる。
+> **props / 穴は常に DOM プロパティ**（`h` / `tags` / `html` 共通）: 値の型やキー名で属性と
+> プロパティを振り分ける暗黙の規則はなく、`el[key] = v` するだけ。リッチな値
+> （`el.items = [...]` — Custom Element への入力口）も、`value` / `checked`
+> （属性だと「初期値」しか変わらない）も、同じ1つの規則で動く。帰結:
+>
+> - キーは**プロパティの本名**で書く: `className`（× `class`）、`htmlFor`（× `for`）。
+>   `id` / `title` / `hidden` / `disabled` など多くのプロパティは属性へ反映されるので、
+>   CSS セレクタからも見える。
+> - `html` のテンプレート内ではパーサが属性名を**小文字化**するため、camelCase の
+>   プロパティ（`className` 等）は穴にできない。`class` は静的に書くか、下のイディオムを使う。
+> - `data-*` / `aria-*` / SVG 属性など**対応するプロパティがないもの**を動的にしたいときは、
+>   `effect` + `setAttribute` / `toggleAttribute` のイディオムで手書きする:
+>
+>   ```js
+>   const el = h("div");
+>   effect(() => el.toggleAttribute("data-on", on.value));
+>   effect(() => el.setAttribute("aria-label", label.value));
+>   ```
+>
+> - `null` を「クリア」の意味で渡さない（文字列プロパティでは `"null"` になりうる）。
+>   空にしたいなら `""` を渡す。
 
 ```js
 const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);
@@ -397,7 +413,7 @@ document.body.append(document.createElement("x-counter"));
 入力経路は2つあり、どちらも同じ signal に合流する:
 
 - **プロパティ代入** — host に accessor を張るので、`el.name = v` がそのまま signal に入る。
-  オブジェクト・配列などリッチな値もそのまま通る（`h` / `html` のリッチな値もこの経路で届く）。
+  オブジェクト・配列などリッチな値もそのまま通る（`h` / `html` の props は全てこの経路で届く）。
   upgrade 前（接続前）に代入されていた値も初期値として拾う。
 - **属性** — `MutationObserver` で観測し、変更を**文字列のまま** signal に流す
   （属性削除は `null`）。静的 HTML の `name="..."` は初期値として読む。型変換はしないので、
@@ -455,7 +471,7 @@ effect(() => host.toggleAttribute("open", open.value));
 ```js
 defineElement("x-card", ({ slot }) => {
   const { div, header, section } = tags;
-  return div({ class: "card" },
+  return div({ className: "card" },
     header(slot("title")),   // slot="title" の子がここへ
     section(slot()),         // 名前なしの子がここへ
   );

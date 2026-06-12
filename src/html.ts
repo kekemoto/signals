@@ -7,11 +7,14 @@
 //     </div>`;
 // 仕組み:
 //   - 静的な構造は <template> でブラウザに一度だけパースさせる（構築は1回）
-//   - 穴(${...})だけを「属性／イベント／子」として後から配線し、関数なら effect を張る
+//   - 穴(${...})だけを「プロパティ／イベント／子」として後から配線し、関数なら effect を張る
+//     （静的に書いた属性はパーサがそのまま属性にする。穴は常に DOM プロパティ代入 — setProp 参照。
+//      パーサが属性名を小文字化するため camelCase プロパティ（className 等）は穴にできない。
+//      class などプロパティのないキーが動的に必要なら effect + setAttribute で手書きする）
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 
-import { setAttr, toNode } from "./node.js";
+import { setProp, toNode } from "./node.js";
 import { effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
@@ -60,29 +63,28 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
     else elements.push(n as Element);
   }
 
-  // 3a. 属性の穴を配線する（onXxx はイベント、関数は reactive 属性）。
+  // 3a. 属性位置の穴を配線する（onXxx はイベント、それ以外は DOM プロパティ）。
   for (const el of elements) {
     for (const attr of [...el.attributes]) {
       const { name, value } = attr;
       const m = value.match(COMMENT_RE); // 値ぜんぶが1つの穴か
       if (m) {
         const v = values[Number(m[1])];
-        // マーカー入りの属性を先に外す。setAttr が属性に書き直すとは限らない
-        // （プロパティ代入に化けるキーがある）ので、残すとマーカーが本物の属性として生きてしまう。
+        // マーカー入りの属性を外す。値はプロパティに入れるので属性には何も残さない。
         el.removeAttribute(name);
         if (name.startsWith("on") && typeof v === "function") {
           el.addEventListener(name.slice(2), v as EventListener); // onclick → click
         } else if (typeof v === "function") {
-          effect(() => setAttr(el, name, (v as () => unknown)()));
+          effect(() => setProp(el, name, (v as () => unknown)()));
         } else if (isSignal(v)) {
-          effect(() => setAttr(el, name, v.value)); // シグナル直接
+          effect(() => setProp(el, name, v.value)); // シグナル直接
         } else {
-          setAttr(el, name, v); // null/false/真偽の意味を保つ
+          setProp(el, name, v); // 静的な穴もプロパティ
         }
       } else if (ATTR_RE.test(value)) {
         // "btn ${...}" のような部分埋め込み
         ATTR_RE.lastIndex = 0;
-        wireDynamicAttr(el, name, value, values);
+        wireDynamicProp(el, name, value, values);
       }
     }
   }
@@ -104,8 +106,10 @@ function read(v: unknown): unknown {
   return typeof v === "function" ? (v as () => unknown)() : isSignal(v) ? v.value : v;
 }
 
-/** "a ${x} b" のように穴を含む属性値を組み立てる。関数 / シグナルが混ざれば reactive。 */
-function wireDynamicAttr(el: Element, name: string, value: string, values: unknown[]): void {
+/** "a ${x} b" のように穴を含む値を文字列に組み立ててプロパティへ入れる。
+ *  関数 / シグナルが混ざれば reactive。 */
+function wireDynamicProp(el: Element, name: string, value: string, values: unknown[]): void {
+  el.removeAttribute(name); // マーカー入りの属性を外す（値はプロパティに入れる）
   const parts = value.split(ATTR_RE); // [lit, idx, lit, idx, lit, ...]
   const compose = () =>
     parts.map((p, i) => (i % 2 === 0 ? p : String(read(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
@@ -115,8 +119,8 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
     const v = values[Number(p)];
     return typeof v === "function" || isSignal(v);
   });
-  if (reactive) effect(() => setAttr(el, name, compose()));
-  else setAttr(el, name, compose());
+  if (reactive) effect(() => setProp(el, name, compose()));
+  else setProp(el, name, compose());
 }
 
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */

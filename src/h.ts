@@ -1,24 +1,23 @@
 // h.ts — reactive.ts に乗る最小 hyperscript（h 関数方式）
-// tagged template と違い、属性(props)と子(children)が引数で分かれているので
-// 「穴が属性か子か」の文字列判定が要らない。穴ごとに effect を張るのは同じ。
+// tagged template と違い、props と子(children)が引数で分かれているので
+// 「穴が props か子か」の文字列判定が要らない。穴ごとに effect を張るのは同じ。
+// props は常に DOM プロパティに代入する（属性には書かない。node.ts の setProp 参照）。
 // 第1引数の props は省略できる（h("div", () => count.value) のように直接子を渡せる）。
 // 関数の子は Node / 配列も返せる（h("ul", () => list.value.map(...)) — html と同じ範囲再描画）。
 // 行の状態を保ちたいリストは For（key 付き差分）を使う。
 
-import { setAttr, toNode } from "./node.js";
+import { setProp, toNode } from "./node.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
 
-/** reactive な属性値・子テキストとして描画できるプリミティブ。 */
+/** reactive な子テキストとして描画できるプリミティブ。 */
 type Renderable = string | number | boolean | null | undefined;
 
-/** props の値。関数 / シグナルなら reactive な属性、`onXxx` の関数はイベントハンドラ。 */
-export type PropValue =
-  | Renderable
-  | EventListenerOrEventListenerObject
-  | (() => Renderable)
-  | Signal<Renderable>;
+/** props の値。常に DOM プロパティに代入されるので何でも渡せる（リッチな値も OK）。
+ *  関数 / シグナルなら reactive、`onXxx` の関数はイベントハンドラ。 */
+export type PropValue = unknown;
 
-/** h(tag, props, ...) の props。`onXxx` はイベント、関数 / シグナルは reactive 属性。 */
+/** h(tag, props, ...) の props。`onXxx` はイベント、それ以外は DOM プロパティ
+ *  （キーはプロパティの本名で書く: `className` / `htmlFor` など）。 */
 export type Props = Record<string, PropValue>;
 
 /** h(tag, props, child) に渡せる子。関数 / シグナルは reactive な子（Node / 配列も返せる）、配列はフラット化される。 */
@@ -39,7 +38,7 @@ export function isProps(x: unknown): x is Props {
 export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElement {
   const el = document.createElement(tag);
 
-  // 第1引数が props なら属性に、そうでなければ全部子として扱う（props 省略）。
+  // 第1引数が props ならプロパティに、そうでなければ全部子として扱う（props 省略）。
   const hasProps = isProps(args[0]);
   const props = hasProps ? (args[0] as Props) : null;
   const children = hasProps ? args.slice(1) : args;
@@ -49,11 +48,11 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
     if (key.startsWith("on") && typeof v === "function") {
       el.addEventListener(key.slice(2).toLowerCase(), v as EventListener); // onClick → click
     } else if (typeof v === "function") {
-      effect(() => setAttr(el, key, (v as () => Renderable)())); // reactive な属性（関数）
+      effect(() => setProp(el, key, (v as () => unknown)())); // reactive なプロパティ（関数）
     } else if (isSignal(v)) {
-      effect(() => setAttr(el, key, v.value as Renderable)); // reactive な属性（シグナル直接）
+      effect(() => setProp(el, key, v.value)); // reactive なプロパティ（シグナル直接）
     } else {
-      setAttr(el, key, v); // 静的な属性
+      setProp(el, key, v); // 静的なプロパティ
     }
   }
 

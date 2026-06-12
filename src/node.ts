@@ -40,26 +40,17 @@ export function toNode(child: unknown): Node {
   return document.createTextNode(String(child));
 }
 
-// 属性を書いても「初期値」しか変わらないフォーム系のキー。
-// （input.value 等は、ユーザー入力後は属性とプロパティが乖離する）
-const FORM_PROPS = new Set(["value", "checked", "selected", "disabled"]);
-
 /**
- * 属性を設定する。null / false は属性を外し、true は空文字（真偽属性）。
- * これは全キー共通の規則で、aria-* / data-* も例外にしない（false=削除なので付け外しできる）。
- * `aria-hidden="false"` のように "false" という文字列自体を残したいときは、真偽値ではなく
- * 文字列 "false" を渡す（文字列はそのまま属性に書かれる）。
- * ただし次の2つはプロパティ代入に切り替える（属性は文字列しか運べないため）:
- * - リッチな値（オブジェクト・関数・配列）→ `el[key] = v`（Custom Element への入力口）
- * - フォーム系の既知キー（value / checked / selected / disabled）→ 現在値を直接更新
+ * props・属性穴の値は常に DOM プロパティへ代入する（`el[key] = v`）。属性には書かない。
+ * 値の型やキー名で属性とプロパティを振り分ける暗黙の規則は持たない。プロパティなら
+ * リッチな値（オブジェクト・配列）も壊れず、value / checked は「初期値」でなく現在値が動く。
+ * 帰結:
+ * - キーはプロパティの本名で書く: `className`（× class）、`htmlFor`（× for）。
+ *   id / title / hidden / disabled など多くのプロパティは属性へ反映される（CSS からも見える）。
+ * - data-* / aria-* / SVG など「対応するプロパティがない属性」は、静的に書くか
+ *   `effect(() => el.setAttribute(...))` のイディオムで手書きする（README 参照）。
+ * - `null` をクリアの意味で渡さない（文字列プロパティでは "null" になりうる）。空にするなら ""。
  */
-export function setAttr(el: Element, key: string, v: unknown): void {
-  if ((typeof v === "object" && v !== null) || typeof v === "function") {
-    (el as unknown as Record<string, unknown>)[key] = v;
-  } else if (FORM_PROPS.has(key) && key in el) {
-    // value だけは null/undefined を空文字に丸める（el.value = null は "null" 表示になるため）。
-    // 真偽系（checked 等）は IDL 側の ToBoolean 変換に任せる。
-    (el as unknown as Record<string, unknown>)[key] = key === "value" && v == null ? "" : v;
-  } else if (v == null || v === false) el.removeAttribute(key);
-  else el.setAttribute(key, v === true ? "" : String(v));
+export function setProp(el: Element, key: string, v: unknown): void {
+  (el as unknown as Record<string, unknown>)[key] = v;
 }

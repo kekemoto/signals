@@ -42,12 +42,12 @@ test("h: onClick が発火する", () => {
   btn.click();
   assert.equal(count.value, 2, "h: onClick が発火する");
 });
-test("h: reactive 属性", () => {
+test("h: reactive プロパティ", () => {
   const on = signal(false);
-  const el = h("div", { class: () => (on.value ? "active" : "idle") });
-  assert.equal(el.getAttribute("class"), "idle", "h: reactive 属性 初期");
+  const el = h("div", { className: () => (on.value ? "active" : "idle") }); // class でなく本名で
+  assert.equal(el.className, "idle", "h: reactive プロパティ 初期");
   on.value = true;
-  assert.equal(el.getAttribute("class"), "active", "h: reactive 属性 更新");
+  assert.equal(el.className, "active", "h: reactive プロパティ 更新");
 });
 test("h: 構築は1回（穴だけ更新）", () => {
   const count = signal(0);
@@ -107,26 +107,27 @@ test("html: onClick", () => {
   el.click();
   assert.equal(count.value, 2, "html: onClick が発火する");
 });
-test("html: reactive 属性", () => {
+test("html: reactive プロパティ", () => {
   const on = signal(false);
-  const el = html`<div class=${() => (on.value ? "active" : "idle")}></div>` as HTMLElement;
-  assert.equal(el.getAttribute("class"), "idle", "html: reactive 属性 初期");
+  const el = html`<div id=${() => (on.value ? "active" : "idle")}></div>` as HTMLElement;
+  assert.equal(el.id, "idle", "html: reactive プロパティ 初期");
   on.value = true;
-  assert.equal(el.getAttribute("class"), "active", "html: reactive 属性 更新");
+  assert.equal(el.id, "active", "html: reactive プロパティ 更新");
 });
-test("html: 部分埋め込み 属性", () => {
+test("html: 部分埋め込みプロパティ", () => {
   const on = signal(false);
-  const el = html`<div class="box ${() => (on.value ? "on" : "off")}"></div>` as HTMLElement;
-  assert.equal(el.getAttribute("class"), "box off", "html: 部分埋め込み 属性 初期");
+  const el = html`<div title="box ${() => (on.value ? "on" : "off")}"></div>` as HTMLElement;
+  assert.equal(el.title, "box off", "html: 部分埋め込み 初期");
+  assert.ok(!/signals-hole/.test(el.getAttribute("title") ?? ""), "html: マーカー属性が残らない");
   on.value = true;
-  assert.equal(el.getAttribute("class"), "box on", "html: 部分埋め込み 属性 更新");
+  assert.equal(el.title, "box on", "html: 部分埋め込み 更新");
 });
-test("html: 静的な穴で属性を設定 / false で外す", () => {
+test("html: 静的な穴もプロパティに入る", () => {
   const el = html`<input value=${"hello"} disabled=${false} title=${"t"}>` as HTMLInputElement;
   assert.equal(el.value, "hello", "html: value の穴はプロパティに入る");
   assert.equal(el.disabled, false, "html: false の穴で disabled が外れる");
   assert.ok(!el.hasAttribute("disabled"), "html: マーカー属性が残らない");
-  assert.equal(el.getAttribute("title"), "t", "html: 通常キーは従来どおり属性");
+  assert.equal(el.getAttribute("title"), "t", "html: title はプロパティ経由で属性にも反映される");
 });
 test("html: 構築は1回（穴だけ更新）", () => {
   const count = signal(0);
@@ -152,14 +153,14 @@ test("html: 複数ルートは fragment", () => {
 });
 
 // === signal を直接渡す（関数ラップ不要）===
-test("h: signal を子・属性に直接渡す", () => {
+test("h: signal を子・プロパティに直接渡す", () => {
   const count = signal(0);
-  const el = h("div", { "data-n": count }, count); // 子・属性ともにシグナルそのものを渡せる
+  const el = h("div", { title: count }, count); // 子・props ともにシグナルそのものを渡せる
   assert.equal(el.textContent, "0", "h: signal を子に直接");
-  assert.equal(el.getAttribute("data-n"), "0", "h: signal を属性に直接");
+  assert.equal(el.title, "0", "h: signal をプロパティに直接");
   count.value = 4;
   assert.equal(el.textContent, "4", "h: signal 子の更新");
-  assert.equal(el.getAttribute("data-n"), "4", "h: signal 属性の更新");
+  assert.equal(el.title, "4", "h: signal プロパティの更新");
 });
 test("tags: signal を子に直接渡す", () => {
   const { span } = tags;
@@ -169,31 +170,31 @@ test("tags: signal を子に直接渡す", () => {
   count.value = 8;
   assert.equal(el.textContent, "8", "tags: signal 子の更新");
 });
-test("html: signal を子・属性に直接渡す", () => {
+test("html: signal を子・プロパティに直接渡す", () => {
   const count = signal(0);
   const color = signal("red");
-  const el = html`<div class=${color}>${count}</div>` as HTMLElement;
+  const el = html`<div id=${color}>${count}</div>` as HTMLElement;
   assert.equal(el.textContent, "0", "html: signal を子に直接");
-  assert.equal(el.getAttribute("class"), "red", "html: signal を属性に直接");
+  assert.equal(el.id, "red", "html: signal をプロパティに直接");
   count.value = 3;
   color.value = "blue";
   assert.equal(el.textContent, "3", "html: signal 子の更新");
-  assert.equal(el.getAttribute("class"), "blue", "html: signal 属性の更新");
+  assert.equal(el.id, "blue", "html: signal プロパティの更新");
 });
-test("html: 丸ごとの属性穴では false/null で属性を外す", () => {
-  // 丸ごとの属性穴では false / null は h と同じく属性を外す（真偽属性の意味）
+test("html: 真偽プロパティは false で属性も外れる", () => {
+  // disabled は反映されるプロパティなので、false を入れれば属性も消える
   const on = signal<boolean>(false);
   const el = html`<input disabled=${on}>` as HTMLElement;
-  assert.ok(!el.hasAttribute("disabled"), "html: signal=false で属性を外す");
+  assert.ok(!el.hasAttribute("disabled"), "html: signal=false で属性が外れる");
   on.value = true;
-  assert.equal(el.getAttribute("disabled"), "", "html: signal=true で属性を付ける");
+  assert.equal(el.getAttribute("disabled"), "", "html: signal=true で属性が付く");
 });
 test("html: 部分埋め込みに signal", () => {
-  const cls = signal("a");
-  const el = html`<div class="box ${cls}"></div>` as HTMLElement;
-  assert.equal(el.getAttribute("class"), "box a", "html: 部分埋め込みに signal 初期");
-  cls.value = "b";
-  assert.equal(el.getAttribute("class"), "box b", "html: 部分埋め込みに signal 更新");
+  const word = signal("a");
+  const el = html`<div title="box ${word}"></div>` as HTMLElement;
+  assert.equal(el.title, "box a", "html: 部分埋め込みに signal 初期");
+  word.value = "b";
+  assert.equal(el.title, "box b", "html: 部分埋め込みに signal 更新");
 });
 
 // === html: 関数の穴が Node / 配列を返す（範囲再描画）===
@@ -323,7 +324,7 @@ test("For: 描画・並べ替え・追加・削除", () => {
           rendered++;
           const n = signal(0);
           return li(
-            { "data-id": item.id },
+            { id: item.id },
             b(() => n.value),
             button({ onClick: () => n.value++ }, "+"),
           );
@@ -331,8 +332,8 @@ test("For: 描画・並べ替え・追加・削除", () => {
       ),
     ),
   );
-  const ids = () => [...el.querySelectorAll("li")].map((x) => x.getAttribute("data-id")).join("");
-  const liByID = (id: string) => el.querySelector(`li[data-id="${id}"]`)!;
+  const ids = () => [...el.querySelectorAll("li")].map((x) => x.id).join("");
+  const liByID = (id: string) => el.querySelector(`li[id="${id}"]`)!;
 
   assert.ok(ids() === "abc" && rendered === 3, `For: 初期描画 ids=${ids()} rendered=${rendered}`);
 
@@ -362,7 +363,7 @@ test("For: 同位置のノードは insertBefore しない", () => {
     For(
       () => items.value,
       (i) => i.id,
-      (item) => li({ "data-id": item.id }, item.id),
+      (item) => li({ id: item.id }, item.id),
     ),
   );
   el.append(list);
@@ -375,7 +376,7 @@ test("For: 同位置のノードは insertBefore しない", () => {
     return orig(node, ref);
   }) as typeof list.insertBefore;
 
-  const ids = () => [...el.querySelectorAll("li")].map((x) => x.getAttribute("data-id")).join("");
+  const ids = () => [...el.querySelectorAll("li")].map((x) => x.id).join("");
 
   // 同じ配列を入れ替えるが順序は不変 → insertBefore はゼロ回
   items.value = [{ id: "a" }, { id: "b" }, { id: "c" }];
@@ -427,9 +428,9 @@ test("Show: 本体と fallback の切替", () => {
         () => visible.value,
         () => {
           made++;
-          return span({ class: "yes" }, "見える");
+          return span({ className: "yes" }, "見える");
         },
-        () => span({ class: "no" }, "隠れた"),
+        () => span({ className: "no" }, "隠れた"),
       ),
     ),
   );
@@ -456,7 +457,7 @@ test("Show: false かつ fallback 省略で何も表示しない", () => {
     div(
       Show(
         () => visible.value,
-        () => span({ class: "yes" }, "見える"),
+        () => span({ className: "yes" }, "見える"),
       ),
     ),
   );
@@ -472,7 +473,7 @@ test("Show: false かつ fallback=null で何も表示しない", () => {
     div(
       Show(
         () => visible.value,
-        () => span({ class: "yes" }, "見える"),
+        () => span({ className: "yes" }, "見える"),
         null,
       ),
     ),
@@ -623,50 +624,46 @@ test("defineElement: upgrade 前のプロパティ代入を初期値として拾
     "defineElement: accessor 設置後の代入も signal に入る",
   );
 });
-test("setAttr: リッチな値はプロパティ代入になる（h 経由）", () => {
+test("setProp: リッチな値もそのままプロパティに入る（h 経由）", () => {
   const items = signal<string[]>(["x"]);
-  const el = h("x-rich", { items: () => items.value } as any);
-  assert.deepEqual((el as any).items, ["x"], "setAttr: 配列はプロパティに入る");
-  assert.equal(el.hasAttribute("items"), false, "setAttr: リッチな値は属性に書かない");
+  const el = h("x-rich", { items: () => items.value });
+  assert.deepEqual((el as any).items, ["x"], "setProp: 配列はプロパティに入る");
+  assert.equal(el.hasAttribute("items"), false, "setProp: 属性には書かない");
   items.value = ["x", "y"];
-  assert.deepEqual((el as any).items, ["x", "y"], "setAttr: reactive にプロパティ更新");
+  assert.deepEqual((el as any).items, ["x", "y"], "setProp: reactive にプロパティ更新");
 });
-test("setAttr: value はプロパティを更新する（ユーザー入力後も反映）", () => {
+test("setProp: value はプロパティを更新する（ユーザー入力後も反映）", () => {
   const text = signal("first");
   const el = h("input", { value: () => text.value }) as HTMLInputElement;
-  assert.equal(el.value, "first", "setAttr: value 初期値");
+  assert.equal(el.value, "first", "setProp: value 初期値");
   el.value = "user typed"; // ユーザー入力で属性とプロパティが乖離した状態
   text.value = "second";
-  assert.equal(el.value, "second", "setAttr: 乖離後も signal の変更が画面に反映される");
-  text.value = null as any;
-  assert.equal(el.value, "", "setAttr: value の null は空文字");
+  assert.equal(el.value, "second", "setProp: 乖離後も signal の変更が画面に反映される");
 });
-test("setAttr: checked はプロパティ false で外れる", () => {
+test("setProp: checked はプロパティ false で外れる", () => {
   const on = signal(true);
   const el = h("input", { type: "checkbox", checked: () => on.value }) as HTMLInputElement;
-  assert.equal(el.checked, true, "setAttr: checked 初期値");
+  assert.equal(el.checked, true, "setProp: checked 初期値");
   on.value = false;
-  assert.equal(el.checked, false, "setAttr: checked false でプロパティが外れる");
+  assert.equal(el.checked, false, "setProp: checked false でプロパティが外れる");
 });
-test("setAttr: aria-*/data-* も真偽値は全キー共通（false=削除で付け外しできる）", () => {
-  // 真偽値の意味は他の属性と同じ: true=空文字（present）/ false=削除（absent）。
+test("setProp: 真偽プロパティは属性に反映され付け外しできる（hidden）", () => {
   const on = signal(true);
-  const el = h("div", { "data-on": () => on.value });
-  assert.equal(el.getAttribute("data-on"), "", "setAttr: data-* の true は空文字");
+  const el = h("div", { hidden: () => on.value });
+  assert.equal(el.hasAttribute("hidden"), true, "setProp: hidden=true で属性が付く");
   on.value = false;
-  assert.equal(
-    el.hasAttribute("data-on"),
-    false,
-    "setAttr: data-* の false で外れる（付け外し可）",
-  );
+  assert.equal(el.hasAttribute("hidden"), false, "setProp: hidden=false で属性が外れる");
   on.value = true;
-  assert.equal(el.hasAttribute("data-on"), true, "setAttr: data-* を再び付けられる");
+  assert.equal(el.hasAttribute("hidden"), true, "setProp: 再び付けられる");
 });
-test('setAttr: "false" という文字列はそのまま属性に書ける（aria-hidden=false）', () => {
-  // "false" 自体を残したいときは真偽値ではなく文字列を渡す。
-  const el = h("div", { "aria-hidden": "false", "data-flag": "true" });
-  assert.equal(el.getAttribute("aria-hidden"), "false", 'setAttr: 文字列 "false" はそのまま');
-  assert.equal(el.getAttribute("data-flag"), "true", 'setAttr: 文字列 "true" はそのまま');
+test("setProp: プロパティのないキー（data-* 等）は effect + setAttribute で手書きする", () => {
+  // data-* / aria-* / SVG など属性しかないものは props では書けない（README のイディオム）。
+  const on = signal(true);
+  const el = h("div");
+  effect(() => el.toggleAttribute("data-on", on.value));
+  assert.equal(el.hasAttribute("data-on"), true, "イディオム: 初期反映");
+  on.value = false;
+  assert.equal(el.hasAttribute("data-on"), false, "イディオム: false で外れる");
 });
 test("toNode: 子の true / false はどちらも非表示", () => {
   const flag = signal<boolean>(true);
@@ -732,7 +729,7 @@ test("defineElement: 切断確定後の再接続で setup し直す", async () =
 test("defineElement: 拾われない light DOM の子は描画されない", async () => {
   defineElement("x-clears", () => {
     const { div } = tags;
-    return div({ class: "own" }, "own");
+    return div({ className: "own" }, "own");
   });
   const el = document.createElement("x-clears");
   el.innerHTML = `<span class="user">u</span>`; // 利用者が書いた子（slot で拾わない）
@@ -751,7 +748,7 @@ test("defineElement: 拾われない light DOM の子は描画されない", asy
 });
 test("defineElement: 再接続で slot 内容が復元される", async () => {
   const { div } = tags;
-  defineElement("x-reslot", ({ slot }) => div({ class: "named" }, slot("title")));
+  defineElement("x-reslot", ({ slot }) => div({ className: "named" }, slot("title")));
   const el = document.createElement("x-reslot");
   el.innerHTML = `<h2 slot="title">見出し</h2>`;
   document.body.append(el);
@@ -774,9 +771,9 @@ test("defineElement: ctx.slot で light DOM の子を投影", () => {
   const { div, header, section } = tags;
   defineElement("x-slotted", ({ slot }) =>
     div(
-      { class: "card" },
-      header({ class: "h" }, slot("title")), // slot="title" の子
-      section({ class: "b" }, slot()), // 名前なしの子
+      { className: "card" },
+      header({ className: "h" }, slot("title")), // slot="title" の子
+      section({ className: "b" }, slot()), // 名前なしの子
     ),
   );
   const el = document.createElement("x-slotted");
@@ -795,7 +792,7 @@ test("defineElement: ctx.slot で light DOM の子を投影", () => {
 });
 test("defineElement: 拾われなかった子は撤去される", () => {
   const { div } = tags;
-  defineElement("x-slot-rest", ({ slot }) => div({ class: "named" }, slot("foo"))); // 名前なしの子は拾わない
+  defineElement("x-slot-rest", ({ slot }) => div({ className: "named" }, slot("foo"))); // 名前なしの子は拾わない
   const el = document.createElement("x-slot-rest");
   el.innerHTML = `<p class="loose">消える</p>`;
   document.body.append(el);
@@ -814,7 +811,7 @@ test("For: signal 直渡し", () => {
       For(
         items,
         (i: { id: string }) => i.id,
-        (item: { id: string }) => li({ "data-id": item.id }, item.id),
+        (item: { id: string }) => li({ id: item.id }, item.id),
       ),
     ),
   );
@@ -830,8 +827,8 @@ test("Show: signal 直渡し", () => {
     div(
       Show(
         visible,
-        () => span({ class: "yes" }, "見える"),
-        () => span({ class: "no" }, "隠れた"),
+        () => span({ className: "yes" }, "見える"),
+        () => span({ className: "no" }, "隠れた"),
       ),
     ),
   );

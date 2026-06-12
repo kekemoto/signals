@@ -6,7 +6,7 @@
 //   tags.myCard(...) → <my-card>（camelCase は kebab-case に変換。Custom Element 用）
 import { type Child, h, type Props } from "./h.js";
 
-/** タグビルダー: 第1引数が props ならそれを属性に、以降を子にする（props は省略可）。 */
+/** タグビルダー: 第1引数が props ならそれを DOM プロパティに、以降を子にする（props は省略可）。 */
 export type TagBuilder = (...args: [Props, ...Child[]] | Child[]) => HTMLElement;
 
 // myCard → my-card / div → div / clipPath → clip-path。先頭が大文字でも先頭ダッシュは付かない。
