@@ -471,6 +471,22 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("defineElement: 再接続後も描画される", el.querySelector("div")?.textContent === "r");
 }
 
+// === defineElement: dispose は自分が描画したノードだけ片付け、利用者の light DOM の子は残す ===
+{
+  defineElement("x-slot", () => { const { div } = tags; return div({ class: "own" }, "own"); });
+  const el = document.createElement("x-slot");
+  const userChild = document.createElement("span");      // 利用者が host に直接書いた light DOM の子
+  userChild.className = "user";
+  el.append(userChild);
+  document.body.append(el);
+  check("defineElement: 描画ノードと利用者の子が共存", !!el.querySelector(".own") && !!el.querySelector(".user"));
+
+  el.remove();
+  await tick();                                          // 切断を確定させて dispose
+  check("defineElement: dispose で描画ノードだけ消える", !el.querySelector(".own"));
+  check("defineElement: dispose で利用者の子は残る", !!el.querySelector(".user"));
+}
+
 // === For / Show: signal を直接渡す（() => sig.value のラップ不要）===
 {
   const { ul, li } = tags;

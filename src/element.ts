@@ -83,13 +83,21 @@ export function defineElement(
 ): CustomElementConstructor {
   class ReactiveElement extends HTMLElement {
     #dispose: (() => void) | null = null;
+    #mounted: ChildNode[] = [];             // setup が返してマウントした最上位ノード群（片付け対象）
 
     connectedCallback(): void {
       if (this.#dispose) return;            // 既にマウント済み（移動による再接続もここで弾く）
       createRoot((dispose) => {
         this.#dispose = dispose;
         const node = setup(makeContext(this));
-        if (node != null) this.append(node);
+        if (node != null) {
+          // DocumentFragment（nodeType 11）は append で中身が host へ移り自身は空になるので、
+          // append 前に実際にマウントされる最上位ノードを控えておく。
+          this.#mounted = node.nodeType === 11
+            ? [...node.childNodes]
+            : [node as ChildNode];
+          this.append(node);
+        }
       });
     }
 
@@ -100,7 +108,8 @@ export function defineElement(
         if (this.isConnected) return;       // 移動だった → 何もしない（状態を保つ）
         this.#dispose?.();                  // root を畳む（effect / MutationObserver / onCleanup を全解放）
         this.#dispose = null;
-        this.replaceChildren();             // 描画した中身を片付ける（再接続時は setup し直す）
+        for (const n of this.#mounted) n.remove(); // 自分が描画したノードだけ片付ける（利用者の light DOM の子は残す）
+        this.#mounted = [];
       });
     }
   }
