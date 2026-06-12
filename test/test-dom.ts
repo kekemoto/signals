@@ -480,9 +480,11 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("defineElement: setup の出力は描画される", !!el.querySelector(".own"));
   check("defineElement: 拾われない light DOM の子は描画されない", !el.querySelector(".user"));
 
+  el.append(Object.assign(document.createElement("span"), { className: "added" })); // 接続後に動的追加
   el.remove();
   await tick();                                          // 切断を確定させて dispose
   check("defineElement: dispose で描画ノードが消える", !el.querySelector(".own"));
+  check("defineElement: dispose で動的追加した子も消える", el.childNodes.length === 0);
 }
 
 // === defineElement: ctx.slot で light DOM の子を出力内へ投影 ===
