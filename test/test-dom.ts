@@ -506,17 +506,28 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("slot: 投影は移動なので元の位置には残らない", el.querySelectorAll(".card h2").length === 1);
 }
 
-// === defineElement: 一致しない slot は空、拾われない子は兄弟として残る ===
+// === defineElement: slot を使うと拾われなかった子は撤去される ===
 {
   const { div } = tags;
   defineElement("x-slot-rest", ({ slot }) =>
     div({ class: "named" }, slot("foo")));     // 名前なしの子は拾わない
   const el = document.createElement("x-slot-rest");
-  el.innerHTML = `<p class="loose">残る</p>`;
+  el.innerHTML = `<p class="loose">消える</p>`;
   document.body.append(el);
 
   check("slot: 一致しない slot は空", el.querySelector(".named")?.childNodes.length === 0);
-  check("slot: 拾われない子は host 直下に残る", el.querySelector(":scope > .loose")?.textContent === "残る");
+  check("slot: 拾われない子は撤去される", !el.querySelector(".loose"));
+}
+
+// === defineElement: slot を使わなければ子はそのまま残る（#20 の保全）===
+{
+  const { div } = tags;
+  defineElement("x-no-slot", () => div({ class: "own" }, "own"));   // slot を使わない
+  const el = document.createElement("x-no-slot");
+  el.innerHTML = `<p class="kept">残る</p>`;
+  document.body.append(el);
+
+  check("slot: 未使用なら利用者の子は残る", el.querySelector(":scope > .kept")?.textContent === "残る");
 }
 
 // === For / Show: signal を直接渡す（() => sig.value のラップ不要）===
