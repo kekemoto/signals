@@ -12,7 +12,7 @@ const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).customElements = dom.window.customElements;
 (globalThis as any).MutationObserver = dom.window.MutationObserver;
 
-const { signal } = await import("../src/reactive.js");
+const { signal, effect } = await import("../src/reactive.js");
 const { h } = await import("../src/h.js");
 const { tags } = await import("../src/tags.js");
 const { html } = await import("../src/html.js");
@@ -439,6 +439,35 @@ test("Show: false かつ fallback=null で何も表示しない", () => {
     ),
   );
   assert.ok(!el.querySelector(".yes"), "Show: false かつ fallback=null で何も表示しない");
+});
+test("Show: render が null を返しても内部 effect が dispose される (#39)", () => {
+  const { div } = tags;
+  const visible = signal(true);
+  const dep = signal(0);
+  let runs = 0;
+  const el = mount();
+  el.append(
+    div(
+      Show(
+        () => visible.value,
+        () => {
+          // node は作らず（null を返す）、内部で effect だけ張る
+          effect(() => {
+            dep.value;
+            runs++;
+          });
+          return null;
+        },
+      ),
+    ),
+  );
+  assert.equal(runs, 1, "Show: 初回に内部 effect が走る");
+  dep.value++;
+  assert.equal(runs, 2, "Show: 表示中は内部 effect が反応する");
+  // when を false にすると前の中身（node=null でも）を dispose する
+  visible.value = false;
+  dep.value++;
+  assert.equal(runs, 2, "Show: 切替後は内部 effect が dispose され反応しない");
 });
 
 // MutationObserver は jsdom でも非同期配信なので、属性変化の反映を待つ用。
