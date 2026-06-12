@@ -471,6 +471,54 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("defineElement: 再接続後も描画される", el.querySelector("div")?.textContent === "r");
 }
 
+// === defineElement: 接続時に light DOM の子は外され、slot で拾わなければ描画されない ===
+{
+  defineElement("x-clears", () => { const { div } = tags; return div({ class: "own" }, "own"); });
+  const el = document.createElement("x-clears");
+  el.innerHTML = `<span class="user">u</span>`;          // 利用者が書いた子（slot で拾わない）
+  document.body.append(el);
+  check("defineElement: setup の出力は描画される", !!el.querySelector(".own"));
+  check("defineElement: 拾われない light DOM の子は描画されない", !el.querySelector(".user"));
+
+  el.append(Object.assign(document.createElement("span"), { className: "added" })); // 接続後に動的追加
+  el.remove();
+  await tick();                                          // 切断を確定させて dispose
+  check("defineElement: dispose で描画ノードが消える", !el.querySelector(".own"));
+  check("defineElement: dispose で動的追加した子も消える", el.childNodes.length === 0);
+}
+
+// === defineElement: ctx.slot で light DOM の子を出力内へ投影 ===
+{
+  const { div, header, section } = tags;
+  defineElement("x-slotted", ({ slot }) =>
+    div({ class: "card" },
+      header({ class: "h" }, slot("title")),   // slot="title" の子
+      section({ class: "b" }, slot()),         // 名前なしの子
+    ));
+  const el = document.createElement("x-slotted");
+  el.innerHTML = `<h2 slot="title">見出し</h2><p>本文</p>`;
+  document.body.append(el);
+
+  const h = el.querySelector(".h");
+  const b = el.querySelector(".b");
+  check("slot: 名前付きの子が header へ", h?.querySelector("h2")?.textContent === "見出し");
+  check("slot: 名前なしの子が section へ", b?.querySelector("p")?.textContent === "本文");
+  check("slot: 投影は移動なので元の位置には残らない", el.querySelectorAll(".card h2").length === 1);
+}
+
+// === defineElement: slot を使うと拾われなかった子は撤去される ===
+{
+  const { div } = tags;
+  defineElement("x-slot-rest", ({ slot }) =>
+    div({ class: "named" }, slot("foo")));     // 名前なしの子は拾わない
+  const el = document.createElement("x-slot-rest");
+  el.innerHTML = `<p class="loose">消える</p>`;
+  document.body.append(el);
+
+  check("slot: 一致しない slot は空", el.querySelector(".named")?.childNodes.length === 0);
+  check("slot: 拾われない子は撤去される", !el.querySelector(".loose"));
+}
+
 // === For / Show: signal を直接渡す（() => sig.value のラップ不要）===
 {
   const { ul, li } = tags;

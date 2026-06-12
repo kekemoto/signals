@@ -211,16 +211,6 @@ null 除去（narrowing）の旨みがない。
 
 ## element.ts
 
-### 20. disconnect 時の `replaceChildren()` が host の子を全部消す [未実装に近い問題]
-
-dispose 時に `this.replaceChildren()` で中身を空にするが、これは **setup が返した DOM 以外**
-（利用者が `<x-tabs><div>tab1</div></x-tabs>` のように書いた light DOM の子）も巻き添えで
-消す。再接続時に setup は走り直すが、元の子は戻らない。
-
-**対応案**: `connectedCallback` でマウントしたノード（`setup` の戻り値）を覚えておき、
-dispose 時はそれだけ `remove()` する。数行の修正で直る。light DOM 専用化と相性の悪い
-数少ない箇所なので、優先度は高め。
-
 ### 21. shadow DOM を選べない [割り切り]
 
 light DOM 専用（スタイルはページ側、`<slot>` なし）。
@@ -288,7 +278,6 @@ README のコード片だけで、動かして試せるものがない。
 
 | 優先 | 項目 | 理由 |
 |---|---|---|
-| 高 | #20 replaceChildren の巻き添え | 実害のあるバグに近い。修正も数行 |
 | 高 | #8 プロパティ設定（input.value 等） | フォームを書くと即座に踏む |
 | 高 | #17 For の同 key 新オブジェクト | immutable 更新が静かに壊れる |
 | 中 | #1/#2 memo の lazy 化とグリッチ解消 | コアの質が上がるが書き換え規模が大きい |

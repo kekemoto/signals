@@ -32,6 +32,15 @@ export interface SetupContext {
   host: HTMLElement;
   /** 属性 name を映す signal を返す（同じ name には同じ signal を返す）。属性が変わると .value も変わる。 */
   attr(name: string): Signal<string | null>;
+  /**
+   * 接続時に利用者が host 直下へ書いていた light DOM の子を取り出す（静的投影）。
+   * - `slot()` … `slot` 属性のない子（デフォルトスロット）。
+   * - `slot("title")` … `slot="title"` を付けた子。
+   * 戻り値（DocumentFragment）を setup の出力の好きな位置に置けば、そこへ子が差し込まれる。
+   * 接続時の light DOM の子は一旦 host から外され、slot() が拾ったものだけが描画される。
+   * 取り出した子はそのノードごと移動する（複製ではない）。どの slot でも拾わなかった子は描画されない。
+   */
+  slot(name?: string): DocumentFragment;
 }
 
 /** Custom Element の中身を組む関数。createRoot 内で1回呼ばれ、返した Node がマウントされる。 */
@@ -44,9 +53,23 @@ export type Setup = (
 function makeContext(host: HTMLElement): SetupContext {
   const signals = new Map<string, Signal<string | null>>();
   let observer: MutationObserver | null = null;
+  // 接続時点の light DOM の子を host から外して退避する（slot 入力）。
+  // slot() が拾ったものだけが setup の出力経由で描画され、拾われなかったものは戻されない＝描画されない。
+  const lightChildren = [...host.childNodes];
+  host.replaceChildren();
 
   return {
     host,
+    slot(name?: string): DocumentFragment {
+      const frag = document.createDocumentFragment();
+      for (const n of lightChildren) {
+        // Element だけが slot 属性を持てる。テキスト/コメントは常にデフォルトスロット行き。
+        const slotName = (n as Partial<Element>).getAttribute?.("slot") ?? null;
+        const match = name != null ? slotName === name : slotName == null;
+        if (match) frag.append(n);              // 退避済みの子を frag へ移す
+      }
+      return frag;
+    },
     attr(name: string): Signal<string | null> {
       let sig = signals.get(name);
       if (sig) return sig;                       // 同じ属性名には同じ signal を返す
@@ -100,7 +123,7 @@ export function defineElement(
         if (this.isConnected) return;       // 移動だった → 何もしない（状態を保つ）
         this.#dispose?.();                  // root を畳む（effect / MutationObserver / onCleanup を全解放）
         this.#dispose = null;
-        this.replaceChildren();             // 描画した中身を片付ける（再接続時は setup し直す）
+        this.replaceChildren();             // 中身を空にする（通常タグ同様、サブツリーごと破棄）。再接続時は setup し直す
       });
     }
   }
