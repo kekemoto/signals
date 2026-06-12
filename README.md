@@ -388,6 +388,15 @@ defineElement("x-toggle", ({ host }) => {
 });
 ```
 
+`ctx.host` 経由で状態を属性へ反映すれば、`x-toggle[open] { ... }` のような CSS 属性
+セレクタでスタイルを当てられる（CSS は JS プロパティを見られないため）。`effect` で包めば
+状態が変わるたび自動で反映される。
+
+```js
+// open（signal）の真偽を host の open 属性に反映する
+effect(() => host.toggleAttribute("open", open.value));
+```
+
 **子の投影（slot）**: `ctx.slot(name?)` は、接続時に利用者が host 直下へ書いていた light DOM の
 子を取り出して返す。返り値（`DocumentFragment`）を `setup` の出力の好きな位置に置けば、そこへ
 子が差し込まれる。`slot("title")` は `slot="title"` を付けた子、`slot()`（引数なし）は `slot`
