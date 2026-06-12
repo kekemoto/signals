@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `memo` / `store` / `onCleanup` / `createRoot` / `isSignal`
+- **コア** — `signal` / `effect` / `batch` / `memo` / `store` / `onCleanup` / `untrack` / `createRoot` / `isSignal`
 - **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
 
 ## インストール
@@ -153,6 +153,30 @@ effect(() => {
   onCleanup(() => controller.abort()); // id が変わる前・dispose 時にキャンセル
 });
 ```
+
+### `untrack(fn)`
+
+`fn` の実行中だけ依存追跡を止める。`effect` の中で「依存登録せずに signal を読みたい」
+ときに使う（読んだ signal が変わっても再実行されない）。単一セルなら `.peek()` で足りるが、
+関数呼び出しをまたいで複数の signal を素通しで読む場面はこちらが素直。
+
+```js
+import { signal, effect, untrack } from "@kekemoto/signals";
+
+const value = signal(0);
+const verbose = signal(true);
+
+effect(() => {
+  // value が変わったときだけログ。verbose の切り替えでは再実行させたくない
+  if (untrack(() => verbose.value)) console.log("value:", value.value);
+});
+
+verbose.value = false; // 再実行されない（追跡していない）
+value.value = 1;       // 再実行される（追跡している）
+```
+
+`untrack` は追跡を止めるだけで所有ツリー（現在のスコープ）は触らないので、`untrack` の
+中で作った `effect` / `memo` は従来どおり現在の `effect` の子としてぶら下がる。
 
 ### `createRoot(fn)`
 

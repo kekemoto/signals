@@ -17,6 +17,7 @@ export {
   onCleanup,
   type Signal,
   signal,
+  untrack,
 } from "./reactive.js";
 export { Show } from "./show.js";
 export { type Store, store } from "./store.js";

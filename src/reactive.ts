@@ -240,6 +240,22 @@ export function onCleanup(fn: () => void): void {
   if (currentOwner) currentOwner.cleanups.push(fn);
 }
 
+// --- untrack ----------------------------------------------------------------
+// fn の実行中だけ依存追跡を止める。effect の中で「依存登録せずに signal を読みたい」
+// ときに使う（読んだ signal が変わっても effect は再実行されない）。
+// 単一セルなら .peek() で足りるが、関数呼び出しをまたいで複数の signal を素通しで
+// 読むような場面はこちらが素直。所有ツリー（currentOwner）は触らないので、untrack の
+// 中で作った effect / memo は従来どおり現在のスコープにぶら下がる。
+export function untrack<T>(fn: () => T): T {
+  const prev = activeComputation;
+  activeComputation = null;
+  try {
+    return fn();
+  } finally {
+    activeComputation = prev;
+  }
+}
+
 // --- createRoot -------------------------------------------------------------
 // 所有ツリーの「独立した根」を作る。fn には dispose 関数が渡され、root の中で作った
 // effect / memo はこの根にぶら下がる。dispose を呼ぶと、その配下をまとめて畳める。

@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { batch, effect, memo, signal } from "../src/reactive.js";
+import { batch, effect, memo, signal, untrack } from "../src/reactive.js";
 import { store } from "../src/store.js";
 
 test("signal の基本", () => {
@@ -273,6 +273,50 @@ test("[堅牢性] flush は世代順（割り込まない）", () => {
   a.value = 1;
   // 世代順なら「E1(1) E2 | E1(2) E2」と区切られる（再帰なら割り込んで順序が乱れる）。
   assert.equal(order.join(","), "E1:1,E2,E1:2,E2", "flush は世代順（割り込まない）");
+});
+
+test("untrack: 中で読んだ signal は依存登録されない", () => {
+  const a = signal(1);
+  const b = signal(10);
+  let seen = 0;
+  let runs = 0;
+  effect(() => {
+    runs++;
+    seen = a.value + untrack(() => b.value); // b は追跡しない
+  });
+  assert.equal(seen, 11, "untrack 初期 (値)");
+  assert.equal(runs, 1, "untrack 初期 (回数)");
+  b.value = 20; // 追跡していないので再実行されない
+  assert.equal(runs, 1, "untrack した b の変化では再実行しない");
+  a.value = 2; // a は追跡している → 再実行され、その時点の b を読む
+  assert.equal(runs, 2, "追跡している a の変化では再実行する");
+  assert.equal(seen, 22, "untrack: 再実行時は最新の b を読む");
+});
+
+test("untrack: 戻り値をそのまま返す", () => {
+  assert.equal(
+    untrack(() => 42),
+    42,
+    "untrack は fn の戻り値を返す",
+  );
+});
+
+test("untrack: 中で作った effect は現在のスコープにぶら下がる", () => {
+  const a = signal(0);
+  let inner = 0;
+  const dispose = effect(() => {
+    a.value; // 外側は a を追跡
+    untrack(() => {
+      effect(() => {
+        a.value; // 内側 effect は通常どおり a を追跡する（untrack は追跡を止めるが新しい effect 内では効かない）
+        inner++;
+      });
+    });
+  });
+  assert.equal(inner, 1, "untrack 内の effect 初回実行");
+  dispose(); // 外側を畳むと内側も連鎖 dispose される
+  a.value = 1;
+  assert.equal(inner, 1, "親 dispose で untrack 内の effect も畳まれる");
 });
 
 test("store: 葉が signal になり、個別に反応する", () => {
