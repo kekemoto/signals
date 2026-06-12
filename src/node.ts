@@ -3,7 +3,8 @@ import { effect, isSignal } from "./reactive.js";
 
 /** 値を1つの Node に変換する。関数 / シグナルは reactive な範囲、配列はまとめて並べる。 */
 export function toNode(child: unknown): Node {
-  if (child == null || child === false) return document.createTextNode("");
+  // 真偽値はどちらも非表示（属性側の true=空文字 とは別。子では false/true とも何も描かない）。
+  if (child == null || typeof child === "boolean") return document.createTextNode("");
   if (isSignal(child)) {
     const s = child;
     child = () => s.value;
@@ -21,7 +22,7 @@ export function toNode(child: unknown): Node {
       const cur = start.nextSibling;
       const isPrim = !(v instanceof Node) && !Array.isArray(v) && typeof v !== "function";
       if (isPrim && cur !== end && cur?.nodeType === 3 && cur.nextSibling === end) {
-        (cur as Text).data = v == null || v === false ? "" : String(v); // テキスト使い回し
+        (cur as Text).data = v == null || typeof v === "boolean" ? "" : String(v); // テキスト使い回し
         return;
       }
       while (start.nextSibling && start.nextSibling !== end)
@@ -45,6 +46,9 @@ const FORM_PROPS = new Set(["value", "checked", "selected", "disabled"]);
 
 /**
  * 属性を設定する。null / false は属性を外し、true は空文字（真偽属性）。
+ * これは全キー共通の規則で、aria-* / data-* も例外にしない（false=削除なので付け外しできる）。
+ * `aria-hidden="false"` のように "false" という文字列自体を残したいときは、真偽値ではなく
+ * 文字列 "false" を渡す（文字列はそのまま属性に書かれる）。
  * ただし次の2つはプロパティ代入に切り替える（属性は文字列しか運べないため）:
  * - リッチな値（オブジェクト・関数・配列）→ `el[key] = v`（Custom Element への入力口）
  * - フォーム系の既知キー（value / checked / selected / disabled）→ 現在値を直接更新
