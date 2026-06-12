@@ -4,7 +4,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { signal, effect, memo, onCleanup, batch, createRoot } from "../src/reactive.js";
 
-// 1. onCleanup: 再実行の直前に前回分が走る
 test("onCleanup: 再実行直前に前回分が走る", () => {
   const s = signal(0);
   const order: string[] = [];
@@ -18,7 +17,6 @@ test("onCleanup: 再実行直前に前回分が走る", () => {
   assert.deepEqual(order, ["run 0", "cleanup 0", "run 1", "cleanup 1", "run 2"]);
 });
 
-// 2. onCleanup: dispose 時に走る
 test("onCleanup: dispose 時に走る", () => {
   const s = signal(0);
   let cleaned = 0;
@@ -28,7 +26,6 @@ test("onCleanup: dispose 時に走る", () => {
   assert.equal(cleaned, 1, "dispose で cleanup");
 });
 
-// 3. onCleanup: setInterval 的な「再貼り直し」パターン
 test("onCleanup: 再貼り直しパターン", () => {
   const id = signal("a");
   const opened: string[] = [], closed: string[] = [];
@@ -44,7 +41,6 @@ test("onCleanup: 再貼り直しパターン", () => {
   assert.deepEqual(closed, ["a", "b", "c"], "再貼り直し: 全て閉じられる");
 });
 
-// 4. owner: 親 dispose で子 effect も止まる
 test("owner: 親 dispose で子 effect も止まる", () => {
   const inner = signal(0);
   let childRuns = 0;
@@ -59,7 +55,6 @@ test("owner: 親 dispose で子 effect も止まる", () => {
   assert.equal(childRuns, 2, "親 dispose 後は子も反応しない");
 });
 
-// 5. owner: 親再実行で前回の子が畳まれる（作り直しでリークしない）
 test("owner: 親再実行で前回の子が畳まれる", () => {
   const outer = signal(0);
   const inner = signal(0);
@@ -76,7 +71,6 @@ test("owner: 親再実行で前回の子が畳まれる", () => {
   assert.equal(childRuns, 3, "生きている子は1つだけ（リークなし）");
 });
 
-// 6. memo: effect 内で作った memo は親と一緒に畳まれる
 test("memo: effect 内で作った memo は親と一緒に畳まれる", () => {
   const a = signal(1);
   let calc = 0;
@@ -91,7 +85,6 @@ test("memo: effect 内で作った memo は親と一緒に畳まれる", () => {
   assert.equal(calc, 1, "親 dispose で memo も停止");
 });
 
-// 7. memo: トップレベル memo は read.dispose で止められる
 test("memo: トップレベル memo は read.dispose で止められる", () => {
   const a = signal(1);
   let calc = 0;
@@ -104,7 +97,6 @@ test("memo: トップレベル memo は read.dispose で止められる", () => 
   assert.equal(calc, 2, "read.dispose 後は止まる");
 });
 
-// 8. onCleanup と batch の併用（まとめ更新でも cleanup は1回）
 test("onCleanup と batch の併用", () => {
   const a = signal(0), b = signal(0);
   let cleanups = 0;
@@ -113,7 +105,6 @@ test("onCleanup と batch の併用", () => {
   assert.equal(cleanups, 1, "batch 1回再実行 → cleanup 1回");
 });
 
-// 9. 3階層ネストの連鎖 dispose
 test("3階層ネストの連鎖 dispose", () => {
   const s = signal(0);
   let g = 0;
@@ -128,7 +119,6 @@ test("3階層ネストの連鎖 dispose", () => {
   assert.equal(g, 1, "根 dispose で孫も止まる");
 });
 
-// 10. createRoot: 中で作った effect は root の dispose で止まる
 test("createRoot: 中で作った effect は root の dispose で止まる", () => {
   const s = signal(0);
   let runs = 0;
@@ -145,7 +135,6 @@ test("createRoot: 中で作った effect は root の dispose で止まる", () 
   assert.equal(runs, 2, "createRoot dispose で止まる");
 });
 
-// 11. createRoot は親の所有ツリーに繋がらない（独立スコープ）
 test("createRoot は親の所有ツリーに繋がらない（独立スコープ）", () => {
   const outer = signal(0);
   const inner = signal(0);
@@ -164,7 +153,6 @@ test("createRoot は親の所有ツリーに繋がらない（独立スコープ
   assert.equal(innerRuns, 4, "独立 root は親再実行で畳まれない（両方反応）");
 });
 
-// 12. createRoot 直下での signal 読みは追跡されない（untrack）
 test("createRoot 直下での signal 読みは追跡されない", () => {
   const s = signal(0);
   let rootRuns = 0;

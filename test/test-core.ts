@@ -5,7 +5,6 @@ import assert from "node:assert/strict";
 import { signal, effect, batch, memo } from "../src/reactive.js";
 import { store } from "../src/store.js";
 
-// 1. signal の基本
 test("signal の基本", () => {
   const s = signal(1);
   assert.equal(s.value, 1, "signal 初期値");
@@ -14,7 +13,6 @@ test("signal の基本", () => {
   assert.equal(s.peek(), 2, "peek は同値");
 });
 
-// 2. effect は初回即実行、依存変化で再実行
 test("effect は初回即実行、依存変化で再実行", () => {
   const s = signal(0);
   let runs = 0, last;
@@ -26,7 +24,6 @@ test("effect は初回即実行、依存変化で再実行", () => {
   assert.equal(last, 5, "effect 依存変化で再実行 (last)");
 });
 
-// 3. 無変化なら再実行しない
 test("無変化なら再実行しない", () => {
   const s = signal(0);
   let runs = 0;
@@ -35,7 +32,6 @@ test("無変化なら再実行しない", () => {
   assert.equal(runs, 1, "無変化 set は再実行しない");
 });
 
-// 4. dispose で購読解除
 test("dispose で購読解除", () => {
   const s = signal(0);
   let runs = 0;
@@ -45,7 +41,6 @@ test("dispose で購読解除", () => {
   assert.equal(runs, 1, "dispose 後は反応しない");
 });
 
-// 5. 動的依存（条件で読む signal が変わる）
 test("動的依存（条件で読む signal が変わる）", () => {
   const cond = signal(true);
   const a = signal("a"), b = signal("b");
@@ -62,7 +57,6 @@ test("動的依存（条件で読む signal が変わる）", () => {
   assert.equal(runs, 2, "動的依存 切替後 旧依存aは無反応");
 });
 
-// 6. batch は1回にまとめる
 test("batch は1回にまとめる", () => {
   const a = signal(1), b = signal(2);
   let runs = 0, sum;
@@ -73,7 +67,6 @@ test("batch は1回にまとめる", () => {
   assert.equal(sum, 30, "batch 後の値");
 });
 
-// 7. memo: 計算共有とキャッシュ
 test("memo: 計算共有とキャッシュ", () => {
   const a = signal(1), b = signal(2);
   let calc = 0;
@@ -87,7 +80,6 @@ test("memo: 計算共有とキャッシュ", () => {
   assert.equal(calc, 2, "memo 入力変化で再計算 (回数)");
 });
 
-// 8. memo: value-cutoff（結果が同じなら下流は走らない）
 test("memo: value-cutoff（結果が同じなら下流は走らない）", () => {
   const n = signal(2);
   const isEven = memo(() => n.value % 2 === 0);
@@ -100,7 +92,6 @@ test("memo: value-cutoff（結果が同じなら下流は走らない）", () =>
   assert.equal(runs, 2, "cutoff 結果変化で下流実行");
 });
 
-// 9. ネストした batch
 test("ネストした batch", () => {
   const a = signal(0);
   let runs = 0;
@@ -110,7 +101,6 @@ test("ネストした batch", () => {
   assert.equal(runs, 1, "ネストbatchは外側で1回flush");
 });
 
-// 10. effect 連鎖（A が書き B が読む）でグリッチなし
 test("effect 連鎖（A が書き B が読む）でグリッチなし", () => {
   const x = signal(1);
   const doubled = signal(0);
@@ -121,7 +111,6 @@ test("effect 連鎖（A が書き B が読む）でグリッチなし", () => {
   assert.equal(seen, 10, "連鎖伝播 最終値正しい");
 });
 
-// 11. flush 中に effect が例外を投げても他は実行されるか（堅牢性）
 test("[堅牢性] 例外時も後続effectが走る", () => {
   const a = signal(0);
   let bRan = false;
@@ -132,7 +121,6 @@ test("[堅牢性] 例外時も後続effectが走る", () => {
   assert.ok(bRan, `例外時も後続effectが走る threw=${threw}`);
 });
 
-// 12. flush 中に例外が出た後、システムが回復するか
 test("[堅牢性] 例外後もシステム回復", () => {
   const a = signal(0);
   effect(() => { if (a.value === 99) throw new Error("boom2"); });
@@ -145,7 +133,6 @@ test("[堅牢性] 例外後もシステム回復", () => {
   assert.equal(runs, 2, "例外後もシステム回復");
 });
 
-// 13. 例外を投げる effect 内での signal 書き込みも、購読する別 effect に伝播する
 test("[堅牢性] 例外effect内のsignal書き込みも伝播", () => {
   const trigger = signal(0);
   const data = signal(0);
@@ -158,7 +145,6 @@ test("[堅牢性] 例外effect内のsignal書き込みも伝播", () => {
   assert.equal(seen, 9, "例外effect内のsignal書き込みも伝播");
 });
 
-// 13b. 無限ループ保護: effect が自分の依存を書き換え続けると例外を投げる
 test("[堅牢性] 自己ループは検出して throw", () => {
   let threw = false;
   try {
@@ -168,7 +154,6 @@ test("[堅牢性] 自己ループは検出して throw", () => {
   assert.ok(threw, "自己ループは検出して throw");
 });
 
-// 13c. 無限ループ保護: 相互に起こし合う effect も検出する
 test("[堅牢性] 相互ループは検出して throw", () => {
   let threw = false;
   try {
@@ -179,7 +164,6 @@ test("[堅牢性] 相互ループは検出して throw", () => {
   assert.ok(threw, "相互ループは検出して throw");
 });
 
-// 13d. 数パスで収束する正当な自己更新は許す（clamp 風）
 test("[堅牢性] 収束する自己更新は通る", () => {
   let threw = false;
   const n = signal(100);
@@ -187,7 +171,6 @@ test("[堅牢性] 収束する自己更新は通る", () => {
   assert.ok(!threw && n.value === 10, `収束する自己更新は通る threw=${threw} n=${n.value}`);
 });
 
-// 13e. flush は世代順（再帰せず、今の世代を流し切ってから次の世代）
 test("[堅牢性] flush は世代順（割り込まない）", () => {
   const a = signal(0);
   const order: string[] = [];
@@ -199,7 +182,6 @@ test("[堅牢性] flush は世代順（割り込まない）", () => {
   assert.equal(order.join(","), "E1:1,E2,E1:2,E2", "flush は世代順（割り込まない）");
 });
 
-// 14. store: 葉が signal になり、個別に反応する
 test("store: 葉が signal になり、個別に反応する", () => {
   const s = store({ user: { name: "a", age: 20 }, ok: true });
   let seen, runs = 0;
@@ -214,13 +196,11 @@ test("store: 葉が signal になり、個別に反応する", () => {
   assert.equal(runs, 0, "store 別の葉は無反応");
 });
 
-// 15. store: プリミティブはそのまま signal（再帰の終端）
 test("store: プリミティブはそのまま signal（再帰の終端）", () => {
   const s = store(5);
   assert.ok(s.value === 5 && typeof s.peek === "function", "store プリミティブは signal");
 });
 
-// 16. store: 配列の各要素も signal になる
 test("store: 配列の各要素も signal になる", () => {
   const s = store([1, 2]);
   assert.ok(s[0].value === 1 && s[1].value === 2, "store 配列要素も signal");

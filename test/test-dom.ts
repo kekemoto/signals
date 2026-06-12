@@ -50,8 +50,6 @@ test("h: 構築は1回（穴だけ更新）", () => {
   count.value = 5;
   assert.ok(builds === 1 && el.textContent === "5", `h: 構築は1回 builds=${builds}`);
 });
-
-// === h: props 省略（第1引数から子を直接渡せる）===
 test("h: props 省略で関数を子に", () => {
   const count = signal(0);
   const el = h("div", () => count.value);       // props を省略
@@ -74,8 +72,6 @@ test("tags: 要素と属性と reactive 子", () => {
   count.value = 9;
   assert.equal(el.querySelector("span")!.textContent, "9", "tags: 子の更新");
 });
-
-// === tags: camelCase → kebab-case 変換（Custom Element 用）===
 test("tags: camelCase → kebab-case 変換", () => {
   const el = tags.myCard({ id: "c" }, "x");
   assert.equal(el.tagName.toLowerCase(), "my-card", "tags: myCard → my-card");
@@ -126,15 +122,13 @@ test("html: 構築は1回（穴だけ更新）", () => {
   assert.ok(builds === 1 && el.textContent === "5", `html: 構築は1回 builds=${builds}`);
 });
 test("html: Node / 配列の穴を差し込む", () => {
-  // 子の穴に Node / 配列 / ネストした html を差し込める
   const inner = html`<b>x</b>`;
   const el = html`<div>${inner}${[h("i", {}, "a"), h("i", {}, "b")]}</div>` as HTMLElement;
   assert.equal(el.querySelector("b")?.textContent, "x", "html: Node の穴を差し込む");
   assert.equal(el.querySelectorAll("i").length, 2, "html: 配列の穴を並べる");
 });
 test("html: 複数ルートは fragment", () => {
-  // 複数ルート（空白を挟む）は DocumentFragment を返す
-  const frag = html`<p>a</p><p>b</p>`;
+  const frag = html`<p>a</p><p>b</p>`; // 複数ルート（空白を挟む）は DocumentFragment を返す
   const host = mount();
   host.append(frag);
   assert.equal(host.querySelectorAll("p").length, 2, "html: 複数ルートは fragment");
@@ -143,8 +137,7 @@ test("html: 複数ルートは fragment", () => {
 // === signal を直接渡す（関数ラップ不要）===
 test("h: signal を子・属性に直接渡す", () => {
   const count = signal(0);
-  // h: 子・属性ともにシグナルそのものを渡せる
-  const el = h("div", { "data-n": count }, count);
+  const el = h("div", { "data-n": count }, count); // 子・属性ともにシグナルそのものを渡せる
   assert.equal(el.textContent, "0", "h: signal を子に直接");
   assert.equal(el.getAttribute("data-n"), "0", "h: signal を属性に直接");
   count.value = 4;
@@ -304,8 +297,6 @@ test("For: 描画・並べ替え・追加・削除", () => {
   items.value = items.value.filter((i) => i.id !== "a"); // 削除
   assert.ok(liByID("a") === null && ids() === "cbd", `For: 削除で該当行だけ消える ids=${ids()}`);
 });
-
-// === For: 重複キーは throw（黙ってリークさせない）===
 test("For: 重複キーで throw", () => {
   const { ul, li } = tags;
   const items = signal([{ id: "x" }, { id: "x" }]);
@@ -334,8 +325,6 @@ test("Show: 本体と fallback の切替", () => {
   assert.ok(!!el.querySelector(".yes"), "Show: true で本体を再表示 (表示)");
   assert.equal(made, 2, "Show: true で本体を再表示 (回数)");
 });
-
-// === Show: fallback 省略 / null のとき false で何も表示しない ===
 test("Show: false かつ fallback 省略で何も表示しない", () => {
   const { div, span } = tags;
   const visible = signal(false);
@@ -356,7 +345,7 @@ test("Show: false かつ fallback=null で何も表示しない", () => {
 // MutationObserver は jsdom でも非同期配信なので、属性変化の反映を待つ用。
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
-// === defineElement: 基本（描画 + 内部 signal で reactive）===
+// === defineElement ===
 test("defineElement: 基本（描画 + 内部 signal で reactive）", () => {
   const { div, span, button } = tags;
   defineElement("x-counter", () => {
@@ -369,8 +358,6 @@ test("defineElement: 基本（描画 + 内部 signal で reactive）", () => {
   el.querySelector("button")!.click();
   assert.equal(el.querySelector("span")?.textContent, "1", "defineElement: 内部 signal で再描画");
 });
-
-// === defineElement: 本当に切断されたら root を畳む（遅延 dispose）===
 test("defineElement: 切断確定で root を畳む（遅延 dispose）", async () => {
   const ext = signal(0);
   let runs = 0;
@@ -391,8 +378,6 @@ test("defineElement: 切断確定で root を畳む（遅延 dispose）", async 
   ext.value = 2;
   assert.equal(runs, 2, "defineElement: 切断確定後は effect が走らない（dispose 済み）");
 });
-
-// === defineElement: onCleanup が切断確定で呼ばれる ===
 test("defineElement: onCleanup が切断確定で呼ばれる", async () => {
   const { onCleanup } = await import("../src/reactive.js");
   const state = { cleaned: false };  // オブジェクト経由にして TS の literal 絞り込みを避ける
@@ -408,8 +393,6 @@ test("defineElement: onCleanup が切断確定で呼ばれる", async () => {
   await tick();                      // 遅延 dispose を確定させる
   assert.equal(state.cleaned, true, "defineElement: 切断確定で onCleanup 発火");
 });
-
-// === defineElement: ctx.attr で属性 → signal ===
 test("defineElement: ctx.attr で属性 → signal", async () => {
   const { p } = tags;
   defineElement("x-greet", ({ attr }) => {
@@ -427,8 +410,6 @@ test("defineElement: ctx.attr で属性 → signal", async () => {
   await tick();
   assert.equal(el.querySelector("p")?.textContent, "hello ?", "defineElement: attr 削除で null");
 });
-
-// === defineElement: ctx.host で要素自身に触れる ===
 test("defineElement: ctx.host で要素自身に触れる", () => {
   const { div } = tags;
   defineElement("x-host", ({ host }) => {
@@ -441,8 +422,6 @@ test("defineElement: ctx.host で要素自身に触れる", () => {
   assert.ok(el.classList.contains("ready"), "defineElement: ctx.host で要素を操作");
   assert.equal(el.querySelector("div")?.textContent, "yo", "defineElement: ctx.host から属性を読む");
 });
-
-// === defineElement: 移動（同期 remove→append）では setup を作り直さず状態を保つ ===
 test("defineElement: 移動では setup を作り直さない", async () => {
   let setups = 0;
   defineElement("x-move", () => { setups++; const { div } = tags; return div("m"); });
@@ -456,8 +435,6 @@ test("defineElement: 移動では setup を作り直さない", async () => {
   assert.equal(setups, 1, "defineElement: 移動では setup を作り直さない");
   assert.equal(el.querySelector("div")?.textContent, "m", "defineElement: 移動後も描画される");
 });
-
-// === defineElement: 本当に切断してからの再接続は setup し直す ===
 test("defineElement: 切断確定後の再接続で setup し直す", async () => {
   let setups = 0;
   defineElement("x-reinit", () => { setups++; const { div } = tags; return div("r"); });
@@ -471,8 +448,6 @@ test("defineElement: 切断確定後の再接続で setup し直す", async () =
   assert.equal(setups, 2, "defineElement: 切断確定後の再接続で setup し直す");
   assert.equal(el.querySelector("div")?.textContent, "r", "defineElement: 再接続後も描画される");
 });
-
-// === defineElement: 接続時に light DOM の子は外され、slot で拾わなければ描画されない ===
 test("defineElement: 拾われない light DOM の子は描画されない", async () => {
   defineElement("x-clears", () => { const { div } = tags; return div({ class: "own" }, "own"); });
   const el = document.createElement("x-clears");
@@ -487,8 +462,6 @@ test("defineElement: 拾われない light DOM の子は描画されない", asy
   assert.ok(!el.querySelector(".own"), "defineElement: dispose で描画ノードが消える");
   assert.equal(el.childNodes.length, 0, "defineElement: dispose で動的追加した子も消える");
 });
-
-// === defineElement: ctx.slot で light DOM の子を出力内へ投影 ===
 test("defineElement: ctx.slot で light DOM の子を投影", () => {
   const { div, header, section } = tags;
   defineElement("x-slotted", ({ slot }) =>
@@ -506,8 +479,6 @@ test("defineElement: ctx.slot で light DOM の子を投影", () => {
   assert.equal(b?.querySelector("p")?.textContent, "本文", "slot: 名前なしの子が section へ");
   assert.equal(el.querySelectorAll(".card h2").length, 1, "slot: 投影は移動なので元の位置には残らない");
 });
-
-// === defineElement: slot を使うと拾われなかった子は撤去される ===
 test("defineElement: 拾われなかった子は撤去される", () => {
   const { div } = tags;
   defineElement("x-slot-rest", ({ slot }) =>
