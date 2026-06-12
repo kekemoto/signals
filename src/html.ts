@@ -11,6 +11,7 @@
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 import { effect, isSignal } from "./reactive.js";
+import { toNode, setAttr } from "./node.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -110,45 +111,6 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
   });
   if (reactive) effect(() => setAttr(el, name, compose()));
   else setAttr(el, name, compose());
-}
-
-/** 穴の値を1つの Node に変換する。関数は reactive な範囲、配列はまとめて並べる。 */
-function toNode(child: unknown): Node {
-  if (child == null || child === false) return document.createTextNode("");
-  if (isSignal(child)) { const s = child; child = () => s.value; } // シグナル直接は関数に正規化
-  if (typeof child === "function") {
-    // コメント2つで範囲を作り、返り値が何であれその間を再描画する。
-    // Node / 配列を返せば構造ごと入れ替わる（${() => list.value.map(...)} が書ける）。
-    // 中で張られた effect は所有権ツリーが再実行時に自動 dispose する。
-    const start = document.createComment("hole");
-    const end = document.createComment("/hole");
-    const frag = document.createDocumentFragment();
-    frag.append(start, end);
-    effect(() => {
-      const v = (child as () => unknown)();
-      const cur = start.nextSibling;
-      const isPrim = !(v instanceof Node) && !Array.isArray(v) && typeof v !== "function";
-      if (isPrim && cur !== end && cur?.nodeType === 3 && cur.nextSibling === end) {
-        (cur as Text).data = v == null || v === false ? "" : String(v); // テキスト使い回し
-        return;
-      }
-      while (start.nextSibling && start.nextSibling !== end) (start.nextSibling as ChildNode).remove();
-      end.before(toNode(v));
-    });
-    return frag;
-  }
-  if (child instanceof Node) return child;
-  if (Array.isArray(child)) {
-    const frag = document.createDocumentFragment();
-    for (const c of child.flat(Infinity)) frag.append(toNode(c));
-    return frag;
-  }
-  return document.createTextNode(String(child));
-}
-
-function setAttr(el: Element, key: string, v: unknown): void {
-  if (v == null || v === false) el.removeAttribute(key);
-  else el.setAttribute(key, v === true ? "" : String(v));
 }
 
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */

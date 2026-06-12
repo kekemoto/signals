@@ -239,6 +239,37 @@ const mount = () => { const el = document.createElement("div"); document.body.ap
   check("html: signal 直接で Node 更新", el.querySelector("strong")?.textContent === "y" && el.querySelector("em") === null);
 }
 
+// === h / tags: 関数の子が Node / 配列を返す（html と同じ範囲再描画）===
+{
+  const items = signal(["A", "B"]);
+  const el = h("ul", () => items.value.map(t => h("li", t)));
+  const texts = () => [...el.querySelectorAll("li")].map(x => x.textContent).join("");
+  check("h: 関数子で .map リスト初期", texts() === "AB", `texts=${texts()}`);
+  items.value = [...items.value, "C"];
+  check("h: 関数子で .map リスト更新", texts() === "ABC", `texts=${texts()}`);
+}
+{
+  const { div, p } = tags;
+  const ok = signal(false);
+  const el = div(() => (ok.value ? p("yes") : null));
+  check("tags: 関数子の条件分岐 初期(null)", el.querySelector("p") === null);
+  ok.value = true;
+  check("tags: 関数子の条件分岐 表示", el.querySelector("p")?.textContent === "yes");
+  ok.value = false;
+  check("tags: 関数子の条件分岐 非表示", el.querySelector("p") === null);
+}
+{
+  // 消えた分岐の effect は h でも自動 dispose される
+  const ok = signal(true);
+  const inner = signal(0);
+  let runs = 0;
+  const el = h("div", () => (ok.value ? h("b", () => { runs++; return inner.value; }) : null));
+  check("h: ネストした関数子も reactive", el.querySelector("b")?.textContent === "0" && runs === 1);
+  ok.value = false;
+  inner.value = 9;
+  check("h: 除去した分岐の effect は止まる", runs === 1, `runs=${runs}`);
+}
+
 // === For ===
 {
   const { ul, li, b, button } = tags;

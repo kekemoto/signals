@@ -196,6 +196,15 @@ const el = h("div", { class: "box" },
 document.body.append(el);
 ```
 
+関数の子は文字列・数値だけでなく **`Node` / 配列も返せる**（`` html`...` `` と同じ範囲再描画）。
+
+```js
+const todos = signal([{ id: 1, text: "牛乳" }]);
+const list = h("ul", () => todos.value.map(t => h("li", t.text)));
+```
+
+> 更新のたびに範囲を全部作り直すので、行の状態を保ちたいリストは `For` を使う（`html` と同様）。
+
 ### `tags`
 
 `h` を Proxy で包んだタグビルダー DSL。第1引数が props ならそれを属性に、以降を子にする
