@@ -64,6 +64,7 @@ interface Owner {
 // 依存追跡の対象になる computation。run() で再実行される callable な Owner。
 interface Computation extends Owner {
   (): void;
+  disposed: boolean; // dispose 済みか（flush 中の「復活」を防ぐ印）
 }
 
 // --- 内部状態 ---------------------------------------------------------------
@@ -105,6 +106,7 @@ function flush(): void {
       const list = [...pendingEffects];
       pendingEffects.clear();
       for (const run of list) {
+        if (run.disposed) continue; // この世代の先行 effect に dispose 済み → 復活させない
         try {
           run();
         } catch (err) {
@@ -147,8 +149,16 @@ function cleanup(node: Owner): void {
   unsubscribe(node); // 購読解除
 }
 
-// node を完全に破棄する: サブツリーを掃除し、親の children からも外す。
+// dispose 対象のサブツリー全体に「死んだ」印を付ける。flush 待ちのキューに
+// 既に積まれている computation も、run の前に弾いて「復活」を防ぐため。
+function markDisposed(node: Owner): void {
+  for (const child of node.children) markDisposed(child);
+  (node as Computation).disposed = true;
+}
+
+// node を完全に破棄する: サブツリーに死亡印を付け、掃除し、親の children からも外す。
 function dispose(node: Owner): void {
+  markDisposed(node); // 先にサブツリーを「死んだ」ことにする（cleanup より前）
   cleanup(node);
   if (node.owner) node.owner.children.delete(node as Computation);
 }
@@ -215,6 +225,7 @@ export function effect(fn: () => void): () => void {
   run.deps = new Set();
   run.children = new Set();
   run.cleanups = [];
+  run.disposed = false;
   run.owner = currentOwner; // 作成時の親（再実行では変わらない）
   if (currentOwner) currentOwner.children.add(run); // 親にぶら下げる
   run();

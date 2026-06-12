@@ -198,3 +198,26 @@ test("createRoot 直下での signal 読みは追跡されない", () => {
   s.value = 1; // 追跡されていなければ rootRuns は増えない
   assert.equal(rootRuns, 1, "createRoot 直下の読みは未追跡");
 });
+
+test("dispose: flush 中に先行 effect が後続を dispose したら後続は復活しない (#29)", () => {
+  const s = signal(0);
+  let bRuns = 0;
+  let disposeB: (() => void) | null = null;
+  // A: s に依存し、s が変わったら B を dispose する（Show の切り替え相当）
+  effect(() => {
+    s.value;
+    if (disposeB) disposeB();
+  });
+  // B: 同じ s に依存して数える（行内 effect 相当）。A より後に購読される。
+  disposeB = effect(() => {
+    s.value;
+    bRuns++;
+  });
+  assert.equal(bRuns, 1, "B は初回実行される");
+  // s 変化で A→B が同じ世代に積まれる。A が B を dispose するので
+  // B は flush で弾かれ、signal を読み直して購読を「復活」させない。
+  s.value = 1;
+  assert.equal(bRuns, 1, "dispose 済みの B はこの世代で走らない");
+  s.value = 2;
+  assert.equal(bRuns, 1, "復活していないので以後も B は反応しない");
+});
