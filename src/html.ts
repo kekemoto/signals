@@ -67,8 +67,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
       const m = value.match(COMMENT_RE); // 値ぜんぶが1つの穴か
       if (m) {
         const v = values[Number(m[1])];
+        // マーカー入りの属性を先に外す。setAttr が属性に書き直すとは限らない
+        // （プロパティ代入に化けるキーがある）ので、残すとマーカーが本物の属性として生きてしまう。
+        el.removeAttribute(name);
         if (name.startsWith("on") && typeof v === "function") {
-          el.removeAttribute(name);
           el.addEventListener(name.slice(2), v as EventListener); // onclick → click
         } else if (typeof v === "function") {
           effect(() => setAttr(el, name, (v as () => unknown)()));

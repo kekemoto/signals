@@ -10,8 +10,10 @@
 //     host 直下（light DOM）にマウントする。本当に切り離されたら root を dispose
 //     （中の effect / onCleanup を全部畳む）。
 //     → html / h / For / Show が張る effect が「孤児」になってリークするのを防ぐ。
-//   - 属性 → signal: ctx.attr(name) が属性値を映す signal を返す（内部は MutationObserver）。
-//     外から <x-el foo="..."> を書き換えると signal 経由で再描画が走る。
+//   - 入力 → signal: ctx.prop(name) が「プロパティ代入」と「属性の変更」を1つの signal に
+//     合流させる。host に accessor を張って el.foo = v を捕まえ（リッチな値もそのまま通る）、
+//     属性の変更は MutationObserver で観測して文字列のまま流し込む。
+//     外から <x-el foo="..."> を書き換えても el.foo = v しても、同じ signal 経由で再描画が走る。
 //
 // 再接続の扱い:
 //   - disconnected で即 dispose せず queueMicrotask まで待ち、その時点でまだ
@@ -26,12 +28,18 @@ export interface DefineOptions {
   elementOptions?: ElementDefinitionOptions;
 }
 
-/** setup に渡る文脈。操作対象の host と、属性を signal として読むヘルパーを持つ。 */
+/** setup に渡る文脈。操作対象の host と、外部からの入力を signal として読むヘルパーを持つ。 */
 export interface SetupContext {
   /** 登録した Custom Element 自身（この要素）。イベント発火やプロパティ操作の入り口。 */
   host: HTMLElement;
-  /** 属性 name を映す signal を返す（同じ name には同じ signal を返す）。属性が変わると .value も変わる。 */
-  attr(name: string): Signal<string | null>;
+  /**
+   * 外部からの入力 name を映す signal を返す（同じ name には同じ signal を返す）。
+   * - host にプロパティ accessor を張るので、`el.foo = v` の代入が signal に入る（リッチな値 OK）。
+   * - 属性 `foo="..."` の変更も MutationObserver で観測して signal に入る（値は文字列のまま）。
+   * - 初期値の優先順: upgrade 前に代入されていたプロパティ > 静的 HTML の属性 > initial。
+   * プロパティ・属性のどちらで書かれても、読み出しは常にこの signal（または `host.foo`）から。
+   */
+  prop<T = unknown>(name: string, initial?: T): Signal<T>;
   /**
    * 接続時に利用者が host 直下へ書いていた light DOM の子を取り出す（静的投影）。
    * - `slot()` … `slot` 属性のない子（デフォルトスロット）。
@@ -47,9 +55,9 @@ export interface SetupContext {
 export type Setup = (ctx: SetupContext) => Node | null | undefined | void;
 
 // host に紐づく文脈（host + ヘルパー）を作る。
-// MutationObserver は最初に attr() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
+// MutationObserver は最初に prop() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
 function makeContext(host: HTMLElement): SetupContext {
-  const signals = new Map<string, Signal<string | null>>();
+  const signals = new Map<string, Signal<unknown>>();
   let observer: MutationObserver | null = null;
   // 接続時点の light DOM の子を host から外して退避する（slot 入力）。
   // slot() が拾ったものだけが setup の出力経由で描画され、拾われなかったものは戻されない＝描画されない。
@@ -68,14 +76,39 @@ function makeContext(host: HTMLElement): SetupContext {
       }
       return frag;
     },
-    attr(name: string): Signal<string | null> {
+    prop<T = unknown>(name: string, initial?: T): Signal<T> {
       let sig = signals.get(name);
-      if (sig) return sig; // 同じ属性名には同じ signal を返す
-      sig = signal(host.getAttribute(name));
+      if (sig) return sig as Signal<T>; // 同じ name には同じ signal を返す
+
+      // 初期値の優先順: upgrade 前に代入されていたプロパティ > 静的 HTML の属性 > initial。
+      let init: unknown = initial;
+      if (host.hasAttribute(name)) init = host.getAttribute(name);
+      const own = Object.getOwnPropertyDescriptor(host, name);
+      if (own && "value" in own) {
+        // upgrade（accessor 設置）前の el.foo = v はただの data property として host に乗っている。
+        // 拾って初期値に昇格し、accessor を張れるよう削除する（Lit の instance property 退避と同じ）。
+        init = own.value;
+        delete (host as unknown as Record<string, unknown>)[name];
+      }
+      sig = signal(init);
       signals.set(name, sig);
 
+      // el.foo の読み書きを signal に直結する。setter は signal に入れるだけで、
+      // 属性へは書き戻さない（out 反映が要るなら利用者が effect + toggleAttribute 等で書く）。
+      const s = sig;
+      Object.defineProperty(host, name, {
+        configurable: true,
+        enumerable: true,
+        get: () => s.value,
+        set: (v: unknown) => {
+          s.value = v;
+        },
+      });
+      // dispose 時（disconnected）に accessor を外す。再接続時は setup ごと作り直す。
+      onCleanup(() => delete (host as unknown as Record<string, unknown>)[name]);
+
       if (!observer) {
-        // 初回だけ観測を開始
+        // 初回だけ観測を開始。prop された name に対応する属性変更を文字列のまま signal へ流す。
         observer = new MutationObserver((records) => {
           for (const r of records) {
             const key = r.attributeName;
@@ -86,7 +119,7 @@ function makeContext(host: HTMLElement): SetupContext {
         observer.observe(host, { attributes: true });
         onCleanup(() => observer!.disconnect()); // dispose 時（disconnected）に観測を止める
       }
-      return sig;
+      return sig as Signal<T>;
     },
   };
 }

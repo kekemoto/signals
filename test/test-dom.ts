@@ -123,9 +123,11 @@ test("html: 部分埋め込み 属性", () => {
   assert.equal(el.getAttribute("class"), "box on", "html: 部分埋め込み 属性 更新");
 });
 test("html: 静的な穴で属性を設定 / false で外す", () => {
-  const el = html`<input value=${"hello"} disabled=${false}>` as HTMLElement;
-  assert.equal(el.getAttribute("value"), "hello", "html: 静的な穴で属性を設定");
-  assert.ok(!el.hasAttribute("disabled"), "html: false の穴で属性を外す");
+  const el = html`<input value=${"hello"} disabled=${false} title=${"t"}>` as HTMLInputElement;
+  assert.equal(el.value, "hello", "html: value の穴はプロパティに入る");
+  assert.equal(el.disabled, false, "html: false の穴で disabled が外れる");
+  assert.ok(!el.hasAttribute("disabled"), "html: マーカー属性が残らない");
+  assert.equal(el.getAttribute("title"), "t", "html: 通常キーは従来どおり属性");
 });
 test("html: 構築は1回（穴だけ更新）", () => {
   const count = signal(0);
@@ -502,22 +504,81 @@ test("defineElement: onCleanup が切断確定で呼ばれる", async () => {
   await tick(); // 遅延 dispose を確定させる
   assert.equal(state.cleaned, true, "defineElement: 切断確定で onCleanup 発火");
 });
-test("defineElement: ctx.attr で属性 → signal", async () => {
+test("defineElement: ctx.prop に属性の変更が流れ込む", async () => {
   const { p } = tags;
-  defineElement("x-greet", ({ attr }) => {
-    const name = attr("name");
+  defineElement("x-greet", ({ prop }) => {
+    const name = prop("name");
     return p(() => `hello ${name.value ?? "?"}`);
   });
   const el = document.createElement("x-greet");
   el.setAttribute("name", "Alice");
   document.body.append(el);
-  assert.equal(el.querySelector("p")?.textContent, "hello Alice", "defineElement: attr 初期値");
+  assert.equal(el.querySelector("p")?.textContent, "hello Alice", "defineElement: prop 属性初期値");
   el.setAttribute("name", "Bob");
   await tick(); // MutationObserver の配信を待つ
-  assert.equal(el.querySelector("p")?.textContent, "hello Bob", "defineElement: attr 変更で再描画");
+  assert.equal(el.querySelector("p")?.textContent, "hello Bob", "defineElement: 属性変更で再描画");
   el.removeAttribute("name");
   await tick();
-  assert.equal(el.querySelector("p")?.textContent, "hello ?", "defineElement: attr 削除で null");
+  assert.equal(el.querySelector("p")?.textContent, "hello ?", "defineElement: 属性削除で null");
+});
+test("defineElement: ctx.prop はプロパティ代入を捕まえる（リッチな値）", () => {
+  const { ul, li } = tags;
+  defineElement("x-list", ({ prop }) => {
+    const items = prop<string[]>("items", []);
+    return ul(() => items.value.map((x) => li(x)));
+  });
+  const el = document.createElement("x-list");
+  document.body.append(el);
+  assert.equal(el.querySelectorAll("li").length, 0, "defineElement: prop 初期値（initial）");
+  (el as any).items = ["a", "b"]; // accessor 経由で signal に入る（同期）
+  assert.equal(el.querySelectorAll("li").length, 2, "defineElement: プロパティ代入で再描画");
+  assert.equal((el as any).items.length, 2, "defineElement: プロパティ読み出しは signal から");
+});
+test("defineElement: upgrade 前のプロパティ代入を初期値として拾う", () => {
+  const { span } = tags;
+  const el = document.createElement("x-early");
+  (el as any).label = "early"; // define 前＝ただの data property
+  defineElement("x-early", ({ prop }) => {
+    const label = prop("label", "default");
+    return span(() => String(label.value));
+  });
+  document.body.append(el); // upgrade → connect
+  assert.equal(
+    el.querySelector("span")?.textContent,
+    "early",
+    "defineElement: upgrade 前の代入が初期値になる",
+  );
+  (el as any).label = "late";
+  assert.equal(
+    el.querySelector("span")?.textContent,
+    "late",
+    "defineElement: accessor 設置後の代入も signal に入る",
+  );
+});
+test("setAttr: リッチな値はプロパティ代入になる（h 経由）", () => {
+  const items = signal<string[]>(["x"]);
+  const el = h("x-rich", { items: () => items.value } as any);
+  assert.deepEqual((el as any).items, ["x"], "setAttr: 配列はプロパティに入る");
+  assert.equal(el.hasAttribute("items"), false, "setAttr: リッチな値は属性に書かない");
+  items.value = ["x", "y"];
+  assert.deepEqual((el as any).items, ["x", "y"], "setAttr: reactive にプロパティ更新");
+});
+test("setAttr: value はプロパティを更新する（ユーザー入力後も反映）", () => {
+  const text = signal("first");
+  const el = h("input", { value: () => text.value }) as HTMLInputElement;
+  assert.equal(el.value, "first", "setAttr: value 初期値");
+  el.value = "user typed"; // ユーザー入力で属性とプロパティが乖離した状態
+  text.value = "second";
+  assert.equal(el.value, "second", "setAttr: 乖離後も signal の変更が画面に反映される");
+  text.value = null as any;
+  assert.equal(el.value, "", "setAttr: value の null は空文字");
+});
+test("setAttr: checked はプロパティ false で外れる", () => {
+  const on = signal(true);
+  const el = h("input", { type: "checkbox", checked: () => on.value }) as HTMLInputElement;
+  assert.equal(el.checked, true, "setAttr: checked 初期値");
+  on.value = false;
+  assert.equal(el.checked, false, "setAttr: checked false でプロパティが外れる");
 });
 test("defineElement: ctx.host で要素自身に触れる", () => {
   const { div } = tags;
