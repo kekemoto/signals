@@ -466,9 +466,17 @@ npm run build:global # IIFE 版だけ作り直す
 
 ## テスト
 
+テストは Node 標準の [`node:test`](https://nodejs.org/api/test.html) ランナー（`node --test`）と
+`node:assert/strict` で書かれている。追加の依存はない。フィルタ実行や TAP 出力は
+`node --test` のオプションがそのまま使える。
+
 ```bash
 npm test       # build してから core / owner テストを実行（jsdom 不要）
 npm run test:dom  # build してから DOM テストを実行（jsdom が必要）
+
+# 個別実行・フィルタの例
+node --test dist/test/test-core.js            # 1ファイルだけ
+node --test --test-name-pattern="memo" dist/test/test-core.js  # 名前で絞り込み
 ```
 
 ## ライセンス

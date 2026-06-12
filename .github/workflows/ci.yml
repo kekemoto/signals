@@ -29,10 +29,8 @@ jobs:
         run: npm run build
 
       - name: Core & owner tests
-        run: |
-          node dist/test/test-core.js
-          node dist/test/test-owner.js
+        run: node --test dist/test/test-core.js dist/test/test-owner.js
 
       - name: DOM tests (jsdom; Node >= 20)
         if: matrix.node-version != '18'
-        run: node dist/test/test-dom.js
+        run: node --test dist/test/test-dom.js

@@ -52,8 +52,8 @@
     "build:global": "esbuild dist/src/index.js --bundle --format=iife --global-name=Signals --outfile=dist/signals.global.js --sourcemap && esbuild dist/src/index.js --bundle --format=iife --global-name=Signals --minify --outfile=dist/signals.global.min.js",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node dist/test/test-core.js && node dist/test/test-owner.js",
-    "test:dom": "npm run build && node dist/test/test-dom.js",
+    "test": "npm run build && node --test dist/test/test-core.js dist/test/test-owner.js",
+    "test:dom": "npm run build && node --test dist/test/test-dom.js",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [
