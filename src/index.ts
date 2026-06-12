@@ -7,6 +7,7 @@ export {
 export { For } from "./for.js";
 export { type Child, h, type Props, type PropValue } from "./h.js";
 export { html } from "./html.js";
+export { type Prop, prop } from "./node.js";
 export {
   batch,
   createRoot,

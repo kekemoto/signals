@@ -5,8 +5,12 @@
 // 関数の子は Node / 配列も返せる（h("ul", () => list.value.map(...)) — html と同じ範囲再描画）。
 // 行の状態を保ちたいリストは For（key 付き差分）を使う。
 
-import { resolveSetter, toNode } from "./node.js";
+import { isProp, type Prop, resolveSetter, setProp, toNode } from "./node.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
+
+// prop() は h / tags のオブジェクト記法で「DOM プロパティ代入」を指定する値ラッパー。
+// `@kekemoto/signals/h` から使えるよう再公開する（実体は node.ts）。
+export { type Prop, prop } from "./node.js";
 
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
 type Renderable = string | number | boolean | null | undefined;
@@ -52,13 +56,18 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
   const children = hasProps ? args.slice(1) : args;
 
   for (const key in props || {}) {
-    const v = (props as Props)[key];
+    let v = (props as Props)[key];
     if (key.startsWith("on") && typeof v === "function") {
       el.addEventListener(key.slice(2).toLowerCase(), v as EventListener); // onClick → click
       continue;
     }
-    // `.foo` なら DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
-    const { key: name, set } = resolveSetter(key);
+    // 振り分け: キーの `.foo`（resolveSetter）か、値側の prop(...) で DOM プロパティ代入になる。
+    const { key: name, set: attrSet } = resolveSetter(key);
+    let set = attrSet;
+    if (isProp(v)) {
+      v = (v as Prop).value as PropValue; // 箱を外し、中身を従来どおり処理
+      set = setProp;
+    }
     if (typeof v === "function") {
       effect(() => set(el, name, (v as () => unknown)())); // reactive（関数）
     } else if (isSignal(v)) {

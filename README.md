@@ -280,31 +280,37 @@ document.body.append(el);
 - 子の関数穴は `Node` / 配列も返せる。素の `.map` でリスト、三項演算子で条件分岐が書ける。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
 
-> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: キー名に **`.` を付けると
-> DOM プロパティ**への代入になり（`el.foo = v`）、付けなければ従来どおり**属性**になる。
-> 値の型では判定しない（明示一本）。
+> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: 既定では値を**属性**として
+> 設定し（文字列化される）、**DOM プロパティ**へ入れたいときだけ明示する。値の型では
+> 判定しない（明示一本）。書き方はサーフェスごとに自然な形を使う:
+> - `html` … 属性名に **`.` を付ける**（`` html`<el .foo=${v}>` ``）
+> - `h` / `tags` … 値を **`prop()` で包む**（`h("el", { foo: prop(v) })`、キーをクォートせずに済む）
 >
 > ```js
-> // 属性（文字列化される。null / false は属性を外し、true は空文字）
+> import { h, prop } from "@kekemoto/signals/h";
+>
+> // 属性（文字列化。null / false は属性を外し、true は空文字）
 > h("a", { href: url, "aria-hidden": hidden });
 > html`<a href=${url}></a>`;
 >
-> // DOM プロパティ（`.` 接頭辞）。オブジェクト・配列などリッチな値もそのまま渡せる
-> h("x-list", { ".items": () => items.value });        // el.items = [...]（Custom Element の口）
-> html`<x-list .items=${() => items.value}></x-list>`;
+> // DOM プロパティ。オブジェクト・配列などリッチな値もそのまま渡せる（Custom Element の口）
+> h("x-list", { items: prop(() => items.value) });    // el.items = [...]
+> html`<x-list .items=${() => items.value}></x-list>`; // 同義。`items=${prop(...)}` とも書ける
 > ```
 >
 > フォーム要素の **`value` / `checked` / `selected`** は、属性だと「初期値」しか変えられず
 > ユーザー入力後は属性とプロパティが乖離する。signal の変更を常に画面へ反映したいなら
-> **`.value` / `.checked`**（プロパティ穴）を使う:
+> プロパティとして渡す:
 >
 > ```js
-> html`<input .value=${() => text.value}>`;   // 入力後も signal の変更が反映される
-> html`<input value=${"既定値"}>`;            // 初期値だけ（入力後は更新しても効かない）
+> html`<input .value=${() => text.value}>`;        // 入力後も signal の変更が反映される
+> h("input", { value: prop(() => text.value) });   // h なら prop() で
+> html`<input value=${"既定値"}>`;                 // 初期値だけ（入力後は更新しても効かない）
 > ```
 >
-> プロパティ穴は値を丸めず素のまま代入する。`.value=${null}` を空にしたいなら
-> `.value=${() => text.value ?? ""}` のように呼び出し側で処理する。
+> プロパティは値を丸めず素のまま代入する。`null` を空にしたいなら
+> `prop(() => text.value ?? "")` のように呼び出し側で処理する。
+> （`h` のキーに直接 `.foo` を書いても `prop()` と同義に動くが、クォートが要るので `prop()` 推奨。）
 
 ```js
 const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);

@@ -73,3 +73,27 @@ export function resolveSetter(name: string): {
 } {
   return name.startsWith(".") ? { key: name.slice(1), set: setProp } : { key: name, set: setAttr };
 }
+
+// prop() が返す箱に付ける非公開ブランド（isSignal の SIGNAL と同じ方式）。
+// 値そのものに意味はなく、「この Symbol キーを持つか」だけを isProp が見る。
+const PROP = Symbol("prop");
+
+/** prop() が返す箱。中身（関数・シグナル・静的値）を `value` に保持する。 */
+export interface Prop {
+  /** DOM プロパティへ入れる中身。関数 / シグナルなら reactive、それ以外は静的。 */
+  value: unknown;
+}
+
+/**
+ * 値を「DOM プロパティへ入れる」と印付けして包む。キーに `.` を付けられない h / tags の
+ * オブジェクト記法で使う（`h("input", { value: prop(() => text.value) })`）。
+ * `html` では属性名の `.value=${x}` が同義のシュガーだが、`value=${prop(x)}` とも書ける。
+ */
+export function prop(value: unknown): Prop {
+  return { value, [PROP]: true } as Prop;
+}
+
+/** 値が prop() で包まれた箱かを判定する（非公開ブランドの有無で見る）。 */
+export function isProp(x: unknown): x is Prop {
+  return typeof x === "object" && x !== null && PROP in x;
+}

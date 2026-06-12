@@ -13,7 +13,7 @@ const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).MutationObserver = dom.window.MutationObserver;
 
 const { signal, effect } = await import("../src/reactive.js");
-const { h } = await import("../src/h.js");
+const { h, prop } = await import("../src/h.js");
 const { tags } = await import("../src/tags.js");
 const { html } = await import("../src/html.js");
 const { For } = await import("../src/for.js");
@@ -137,6 +137,14 @@ test("html: `.value` 穴は DOM プロパティに入る（入力後も反映）
   el.value = "user typed"; // ユーザー入力で乖離
   text.value = "second";
   assert.equal(el.value, "second", "html: 乖離後も signal の変更が反映される");
+});
+test("html: prop() ラッパーでも DOM プロパティに入る", () => {
+  const items = signal<string[]>(["x"]);
+  const el = html`<x-rich .items=${() => items.value}></x-rich>` as HTMLElement;
+  const el2 = html`<x-rich items=${prop(() => items.value)}></x-rich>` as HTMLElement;
+  assert.deepEqual((el as any).items, ["x"], "html: `.items` でプロパティ");
+  assert.deepEqual((el2 as any).items, ["x"], "html: prop() ラッパーでも同義");
+  assert.ok(!el2.hasAttribute("items"), "html: prop() は属性に書かない");
 });
 test("html: 構築は1回（穴だけ更新）", () => {
   const count = signal(0);
@@ -693,34 +701,39 @@ test("defineElement: upgrade 前のプロパティ代入を初期値として拾
     "defineElement: accessor 設置後の代入も signal に入る",
   );
 });
-test("prop: `.foo` はリッチな値を DOM プロパティに入れる（h 経由）", () => {
+test("prop: prop() はリッチな値を DOM プロパティに入れる（h 経由）", () => {
   const items = signal<string[]>(["x"]);
-  const el = h("x-rich", { ".items": () => items.value } as any);
+  const el = h("x-rich", { items: prop(() => items.value) } as any);
   assert.deepEqual((el as any).items, ["x"], "prop: 配列はプロパティに入る");
-  assert.equal(el.hasAttribute("items"), false, "prop: `.foo` は属性に書かない");
+  assert.equal(el.hasAttribute("items"), false, "prop: prop() は属性に書かない");
   items.value = ["x", "y"];
   assert.deepEqual((el as any).items, ["x", "y"], "prop: reactive にプロパティ更新");
 });
-test("prop: `.value` はプロパティを更新する（ユーザー入力後も反映）", () => {
+test("prop: prop(value) はプロパティを更新する（ユーザー入力後も反映）", () => {
   const text = signal("first");
-  const el = h("input", { ".value": () => text.value }) as HTMLInputElement;
-  assert.equal(el.value, "first", "prop: .value 初期値");
+  const el = h("input", { value: prop(() => text.value) }) as HTMLInputElement;
+  assert.equal(el.value, "first", "prop: prop(value) 初期値");
   el.value = "user typed"; // ユーザー入力で属性とプロパティが乖離した状態
   text.value = "second";
   assert.equal(el.value, "second", "prop: 乖離後も signal の変更が画面に反映される");
+});
+test("prop: 静的なリッチ値も prop() で渡せる", () => {
+  const arr = ["a", "b"];
+  const el = h("x-rich", { items: prop(arr) } as any);
+  assert.equal((el as any).items, arr, "prop: 静的な配列がそのままプロパティに入る");
+});
+test("prop: h では `.foo` キーも prop() と同義に動く", () => {
+  const on = signal(true);
+  const el = h("input", { type: "checkbox", ".checked": () => on.value }) as HTMLInputElement;
+  assert.equal(el.checked, true, "prop: `.checked` キーも prop と同義");
+  on.value = false;
+  assert.equal(el.checked, false, "prop: `.checked` false でプロパティが外れる");
 });
 test("attr: 接頭辞なしの value は属性のまま（初期値だけ・入力後は乖離）", () => {
   const el = h("input", { value: "first" }) as HTMLInputElement;
   assert.equal(el.getAttribute("value"), "first", "attr: value は属性に書かれる");
   el.value = "user typed"; // ユーザー入力でプロパティが乖離
   assert.equal(el.getAttribute("value"), "first", "attr: 属性は初期値のまま");
-});
-test("prop: `.checked` はプロパティ false で外れる", () => {
-  const on = signal(true);
-  const el = h("input", { type: "checkbox", ".checked": () => on.value }) as HTMLInputElement;
-  assert.equal(el.checked, true, "prop: .checked 初期値");
-  on.value = false;
-  assert.equal(el.checked, false, "prop: .checked false でプロパティが外れる");
 });
 test("setAttr: aria-*/data-* も真偽値は全キー共通（false=削除で付け外しできる）", () => {
   // 真偽値の意味は他の属性と同じ: true=空文字（present）/ false=削除（absent）。
