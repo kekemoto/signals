@@ -1,16 +1,11 @@
 // test-owner.ts — owner ツリー / onCleanup / createRoot のテスト
-// 実行: node dist/test/test-owner.js  (jsdom 不要)
+// 実行: node --test dist/test/  (jsdom 不要)
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import { signal, effect, memo, onCleanup, batch, createRoot } from "../src/reactive.js";
 
-let pass = 0, fail = 0;
-const log: string[] = [];
-function check(name: string, cond: unknown, detail = ""): void {
-  if (cond) { pass++; log.push(`  ok  ${name}`); }
-  else { fail++; log.push(`FAIL  ${name}  ${detail}`); }
-}
-
 // 1. onCleanup: 再実行の直前に前回分が走る
-{
+test("onCleanup: 再実行直前に前回分が走る", () => {
   const s = signal(0);
   const order: string[] = [];
   effect(() => {
@@ -20,23 +15,21 @@ function check(name: string, cond: unknown, detail = ""): void {
   });
   s.value = 1;
   s.value = 2;
-  check("onCleanup 再実行直前に前回分が走る",
-    JSON.stringify(order) === JSON.stringify(["run 0", "cleanup 0", "run 1", "cleanup 1", "run 2"]),
-    JSON.stringify(order));
-}
+  assert.deepEqual(order, ["run 0", "cleanup 0", "run 1", "cleanup 1", "run 2"]);
+});
 
 // 2. onCleanup: dispose 時に走る
-{
+test("onCleanup: dispose 時に走る", () => {
   const s = signal(0);
   let cleaned = 0;
   const d = effect(() => { s.value; onCleanup(() => cleaned++); });
-  check("dispose 前は未cleanup", cleaned === 0);
+  assert.equal(cleaned, 0, "dispose 前は未cleanup");
   d();
-  check("dispose で cleanup", cleaned === 1);
-}
+  assert.equal(cleaned, 1, "dispose で cleanup");
+});
 
 // 3. onCleanup: setInterval 的な「再貼り直し」パターン
-{
+test("onCleanup: 再貼り直しパターン", () => {
   const id = signal("a");
   const opened: string[] = [], closed: string[] = [];
   const d = effect(() => {
@@ -47,27 +40,27 @@ function check(name: string, cond: unknown, detail = ""): void {
   id.value = "b";
   id.value = "c";
   d();
-  check("再貼り直し: open 系列", JSON.stringify(opened) === JSON.stringify(["a", "b", "c"]), JSON.stringify(opened));
-  check("再貼り直し: 全て閉じられる", JSON.stringify(closed) === JSON.stringify(["a", "b", "c"]), JSON.stringify(closed));
-}
+  assert.deepEqual(opened, ["a", "b", "c"], "再貼り直し: open 系列");
+  assert.deepEqual(closed, ["a", "b", "c"], "再貼り直し: 全て閉じられる");
+});
 
 // 4. owner: 親 dispose で子 effect も止まる
-{
+test("owner: 親 dispose で子 effect も止まる", () => {
   const inner = signal(0);
   let childRuns = 0;
   const disposeParent = effect(() => {
     effect(() => { inner.value; childRuns++; }); // 子
   });
-  check("子は初回実行", childRuns === 1, `childRuns=${childRuns}`);
+  assert.equal(childRuns, 1, "子は初回実行");
   inner.value = 1;
-  check("子は依存変化で再実行", childRuns === 2, `childRuns=${childRuns}`);
+  assert.equal(childRuns, 2, "子は依存変化で再実行");
   disposeParent();                    // 親を畳む → 子も連鎖 dispose
   inner.value = 2;
-  check("親 dispose 後は子も反応しない", childRuns === 2, `childRuns=${childRuns}`);
-}
+  assert.equal(childRuns, 2, "親 dispose 後は子も反応しない");
+});
 
 // 5. owner: 親再実行で前回の子が畳まれる（作り直しでリークしない）
-{
+test("owner: 親再実行で前回の子が畳まれる", () => {
   const outer = signal(0);
   const inner = signal(0);
   let childRuns = 0;
@@ -76,15 +69,15 @@ function check(name: string, cond: unknown, detail = ""): void {
     effect(() => { inner.value; childRuns++; });   // 親再実行のたびに子を新規作成
   });
   // ここまで: 親1回 → 子1つ作成 → childRuns=1
-  check("初期 childRuns", childRuns === 1, `childRuns=${childRuns}`);
+  assert.equal(childRuns, 1, "初期 childRuns");
   outer.value = 1;                  // 親再実行 → 前回の子を畳んで新しい子を作る
-  check("親再実行で新しい子", childRuns === 2, `childRuns=${childRuns}`);
+  assert.equal(childRuns, 2, "親再実行で新しい子");
   inner.value = 1;                  // 子が反応。リークしていれば古い子も走り +2 になる
-  check("生きている子は1つだけ（リークなし）", childRuns === 3, `childRuns=${childRuns}`);
-}
+  assert.equal(childRuns, 3, "生きている子は1つだけ（リークなし）");
+});
 
 // 6. memo: effect 内で作った memo は親と一緒に畳まれる
-{
+test("memo: effect 内で作った memo は親と一緒に畳まれる", () => {
   const a = signal(1);
   let calc = 0;
   let read;
@@ -92,36 +85,36 @@ function check(name: string, cond: unknown, detail = ""): void {
     const m = memo(() => { calc++; return a.value * 2; });
     read = m();
   });
-  check("memo 初期計算", calc === 1 && read === 2, `calc=${calc} read=${read}`);
+  assert.ok(calc === 1 && read === 2, "memo 初期計算");
   disposeParent();                  // 親 effect ごと畳む → memo の内部 effect も停止
   a.value = 5;                      // 停止しているので再計算されないはず
-  check("親 dispose で memo も停止", calc === 1, `calc=${calc}`);
-}
+  assert.equal(calc, 1, "親 dispose で memo も停止");
+});
 
 // 7. memo: トップレベル memo は read.dispose で止められる
-{
+test("memo: トップレベル memo は read.dispose で止められる", () => {
   const a = signal(1);
   let calc = 0;
   const m = memo(() => { calc++; return a.value; });
   m();
   a.value = 2;
-  check("dispose 前は追従", calc === 2, `calc=${calc}`);
+  assert.equal(calc, 2, "dispose 前は追従");
   m.dispose();
   a.value = 3;
-  check("read.dispose 後は止まる", calc === 2, `calc=${calc}`);
-}
+  assert.equal(calc, 2, "read.dispose 後は止まる");
+});
 
 // 8. onCleanup と batch の併用（まとめ更新でも cleanup は1回）
-{
+test("onCleanup と batch の併用", () => {
   const a = signal(0), b = signal(0);
   let cleanups = 0;
   effect(() => { a.value; b.value; onCleanup(() => cleanups++); });
   batch(() => { a.value = 1; b.value = 1; });
-  check("batch 1回再実行 → cleanup 1回", cleanups === 1, `cleanups=${cleanups}`);
-}
+  assert.equal(cleanups, 1, "batch 1回再実行 → cleanup 1回");
+});
 
 // 9. 3階層ネストの連鎖 dispose
-{
+test("3階層ネストの連鎖 dispose", () => {
   const s = signal(0);
   let g = 0;
   const top = effect(() => {
@@ -129,14 +122,14 @@ function check(name: string, cond: unknown, detail = ""): void {
       effect(() => { s.value; g++; });   // grandchild
     });
   });
-  check("孫まで初回実行", g === 1, `g=${g}`);
+  assert.equal(g, 1, "孫まで初回実行");
   top();                                  // 根を畳む
   s.value = 1;
-  check("根 dispose で孫も止まる", g === 1, `g=${g}`);
-}
+  assert.equal(g, 1, "根 dispose で孫も止まる");
+});
 
 // 10. createRoot: 中で作った effect は root の dispose で止まる
-{
+test("createRoot: 中で作った effect は root の dispose で止まる", () => {
   const s = signal(0);
   let runs = 0;
   let disposeRoot!: () => void;
@@ -144,16 +137,16 @@ function check(name: string, cond: unknown, detail = ""): void {
     disposeRoot = dispose;
     effect(() => { s.value; runs++; });
   });
-  check("createRoot 内 effect は初回実行", runs === 1, `runs=${runs}`);
+  assert.equal(runs, 1, "createRoot 内 effect は初回実行");
   s.value = 1;
-  check("createRoot 内 effect は反応する", runs === 2, `runs=${runs}`);
+  assert.equal(runs, 2, "createRoot 内 effect は反応する");
   disposeRoot();
   s.value = 2;
-  check("createRoot dispose で止まる", runs === 2, `runs=${runs}`);
-}
+  assert.equal(runs, 2, "createRoot dispose で止まる");
+});
 
 // 11. createRoot は親の所有ツリーに繋がらない（独立スコープ）
-{
+test("createRoot は親の所有ツリーに繋がらない（独立スコープ）", () => {
   const outer = signal(0);
   const inner = signal(0);
   let innerRuns = 0;
@@ -163,16 +156,16 @@ function check(name: string, cond: unknown, detail = ""): void {
       effect(() => { inner.value; innerRuns++; }); // root 内（独立）
     });
   });
-  check("初期 innerRuns", innerRuns === 1, `innerRuns=${innerRuns}`);
+  assert.equal(innerRuns, 1, "初期 innerRuns");
   outer.value = 1;                     // 親再実行。root は独立なので前回の中身は畳まれない
-  check("親再実行で root 内 effect が新規に増える", innerRuns === 2, `innerRuns=${innerRuns}`);
+  assert.equal(innerRuns, 2, "親再実行で root 内 effect が新規に増える");
   // 独立スコープなので、前回の root 内 effect も生きたまま → inner 変化で両方走る
   inner.value = 1;
-  check("独立 root は親再実行で畳まれない（両方反応）", innerRuns === 4, `innerRuns=${innerRuns}`);
-}
+  assert.equal(innerRuns, 4, "独立 root は親再実行で畳まれない（両方反応）");
+});
 
 // 12. createRoot 直下での signal 読みは追跡されない（untrack）
-{
+test("createRoot 直下での signal 読みは追跡されない", () => {
   const s = signal(0);
   let rootRuns = 0;
   createRoot(() => {
@@ -180,9 +173,5 @@ function check(name: string, cond: unknown, detail = ""): void {
     s.value;          // root 直下で読む（effect ではない）
   });
   s.value = 1;        // 追跡されていなければ rootRuns は増えない
-  check("createRoot 直下の読みは未追跡", rootRuns === 1, `rootRuns=${rootRuns}`);
-}
-
-console.log(log.join("\n"));
-console.log(`\npass=${pass} fail=${fail}`);
-process.exit(fail > 0 ? 1 : 0);
+  assert.equal(rootRuns, 1, "createRoot 直下の読みは未追跡");
+});

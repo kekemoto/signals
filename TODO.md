@@ -240,12 +240,13 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 
 ## テスト・インフラ
 
-### 24. テストが自前ハーネス [割り切り]
+### 24. テストが自前ハーネス [対応済み]
 
-`check()` を並べた手書きスクリプト。フィルタ実行・並列化・diff 表示がない。
+~~`check()` を並べた手書きスクリプト。フィルタ実行・並列化・diff 表示がない。~~
 
-**対応案**: 依存を増やさず `node:test` + `assert` に移行する（Node 18+ 標準）。
-`node --test dist/test/` で個別実行・TAP 出力が手に入る。書き換えは機械的。
+依存を増やさず `node:test` + `node:assert/strict` に移行済み（Node 18+ 標準）。
+各テストは `test(...)` ブロックになり、`node --test dist/test/test-*.js` で
+個別実行・`--test-name-pattern` でのフィルタ・TAP 出力が使える。
 
 ### 25. lint / format が未設定 [未実装]
 
