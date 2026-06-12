@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "最小リアクティブシステム（signal / effect / memo）と DOM ユーティリティ",
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/src/index.d.ts",
   "unpkg": "./dist/signals.global.min.js",
   "jsdelivr": "./dist/signals.global.min.js",

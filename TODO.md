@@ -228,12 +228,6 @@ CI はテストのみで、リリースは手元の `npm publish` 頼み。
 **対応案**: `v*` タグ push をトリガに `npm publish --provenance` する workflow を追加する。
 あわせて CHANGELOG.md（手書きで十分）を置く。
 
-### 27. `package.json` に `sideEffects: false` がない [未実装]
-
-バンドラの tree-shaking が保守的になる。本ライブラリはトップレベル副作用がないので宣言できる。
-
-**対応案**: `"sideEffects": false` を1行足す。
-
 ### 28. examples / デモページがない [未実装]
 
 README のコード片だけで、動かして試せるものがない。
@@ -250,6 +244,6 @@ README のコード片だけで、動かして試せるものがない。
 | 高 | #17 For の同 key 新オブジェクト | immutable 更新が静かに壊れる |
 | 中 | #1/#2 memo の lazy 化とグリッチ解消 | コアの質が上がるが書き換え規模が大きい |
 | 中 | #16 For の同位置スキップ | 数行で大半の無駄が消える |
-| 中 | #3 untrack / #4 equals / #27 sideEffects | 小さく足せて効果が確実 |
+| 中 | #3 untrack / #4 equals | 小さく足せて効果が確実 |
 | 低 | #9 SVG / #21 shadow DOM | 必要になったときに |
 | 低 | #26, #28 インフラ整備 | 機能とは独立にいつでも |
