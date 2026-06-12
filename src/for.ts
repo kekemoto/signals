@@ -1,21 +1,26 @@
 // for.ts — key 付きリスト差分（reconciliation）。h.ts / tags.ts と組み合わせる。
-//   For(() => items.value, item => item.id, item => h("li", {}, item.text))
+//   For(() => items.value, item => item.id, item => h("li", {}, item()))
 // 要点:
 //   - key ごとに DOM ノードを覚えておき、再描画では「作り直さず使い回す」
 //   - 行は createRoot で独立スコープにするので、リスト全体が再評価されても
 //     生き残る行の effect は畳まれない（＝行ごとの状態が保たれる）
 //   - 消えた key の行だけ dispose して DOM から除去する
-import { createRoot, effect, isSignal, type Signal } from "./reactive.js";
+//   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
+//     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
+//     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
+import { createRoot, effect, isSignal, type Signal, signal } from "./reactive.js";
 
-interface Entry {
+interface Entry<T> {
   node: Node;
   dispose: () => void;
+  item: Signal<T>; // 行に流し込む現在の item（同 key・新オブジェクトでも差し替えられる）
+  index: Signal<number>; // 行の現在位置（並べ替えで更新する）
 }
 
 export function For<T>(
   items: (() => T[]) | Signal<T[]>,
   keyFn: (item: T) => unknown,
-  render: (item: T) => Node,
+  render: (item: () => T, index: () => number) => Node,
 ): DocumentFragment {
   const itemsFn = isSignal(items) ? () => items.value : items; // signal なら .value を読む関数に
   const start = document.createComment("for");
@@ -23,7 +28,7 @@ export function For<T>(
   const frag = document.createDocumentFragment();
   frag.append(start, end); // この2つの間にリストを並べる
 
-  let entries = new Map<unknown, Entry>(); // key -> { node, dispose }
+  let entries = new Map<unknown, Entry<T>>(); // key -> Entry
 
   effect(() => {
     const items = itemsFn(); // ここで配列を購読（変わると再実行）
@@ -31,7 +36,7 @@ export function For<T>(
     if (!parent) return; // まだ DOM に挿入されていない
 
     const keys = items.map(keyFn);
-    const next = new Map<unknown, Entry>();
+    const next = new Map<unknown, Entry<T>>();
 
     // 1. 各 item のノードを用意（既存は使い回し、新規だけ createRoot で作る）
     const nodes = items.map((item, i) => {
@@ -41,11 +46,21 @@ export function For<T>(
       if (!entry) {
         let node!: Node;
         let dispose!: () => void;
+        const itemSig = signal(item); // 行ローカルに item / index を保持
+        const indexSig = signal(i);
         createRoot((d) => {
           dispose = d;
-          node = render(item);
+          // accessor で渡す: 行内の穴が itemSig / indexSig を購読し、値の差し替えに反応する
+          node = render(
+            () => itemSig.value,
+            () => indexSig.value,
+          );
         }); // 行ごとの独立スコープ
-        entry = { node, dispose };
+        entry = { node, dispose, item: itemSig, index: indexSig };
+      } else {
+        // 使い回す行: 中身と位置を流し込む（Object.is で無変化なら通知は起きない）。
+        entry.item.value = item; // 同 key・新オブジェクトでも行内の穴が更新される（#17）
+        entry.index.value = i; // 並べ替えで位置が変われば index 依存の穴も更新される（#18）
       }
       next.set(key, entry);
       return entry.node;

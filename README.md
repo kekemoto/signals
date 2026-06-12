@@ -305,6 +305,14 @@ const view = html`
 key 付きリスト差分描画。存在し続ける行の `effect` は畳まれない。
 第1引数は**配列のシグナルそのもの**でも、配列を返す関数（`() => items.value`）でもよい。
 
+`render(item, index)` の `item` / `index` は **accessor（`() => 値`）** で渡される。
+行内では `() => item().text` のように穴で読む（直接 `item.text` ではない）。こうすると、
+行ノードを使い回したまま次の2つが正しく反映される。
+
+- **同じ key で中身が新しいオブジェクトに差し替わった更新**
+  （`items.value.map(x => ({ ...x, done: true }))` のような immutable 更新）でも、行内の穴が更新される。
+- **並べ替え・挿入・削除で位置が変わった**とき、`index()` も追従する（順位表示などに使える）。
+
 ```js
 import { For } from "@kekemoto/signals/for";
 import { signal } from "@kekemoto/signals";
@@ -321,7 +329,7 @@ const list = ul(
   For(
     items,                  // signal を直接渡せる（() => items.value でも可）
     item => item.id,
-    item => li(item.text),
+    (item, index) => li(() => `${index() + 1}. ${item().text}`), // item / index は accessor
   ),
 );
 ```

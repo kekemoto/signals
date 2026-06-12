@@ -323,7 +323,7 @@ test("For: 描画・並べ替え・追加・削除", () => {
           rendered++;
           const n = signal(0);
           return li(
-            { "data-id": item.id },
+            { "data-id": item().id },
             b(() => n.value),
             button({ onClick: () => n.value++ }, "+"),
           );
@@ -362,7 +362,7 @@ test("For: 同位置のノードは insertBefore しない", () => {
     For(
       () => items.value,
       (i) => i.id,
-      (item) => li({ "data-id": item.id }, item.id),
+      (item) => li({ "data-id": item().id }, item().id),
     ),
   );
   el.append(list);
@@ -405,7 +405,7 @@ test("For: 重複キーで throw", () => {
         For(
           () => items.value,
           (i: { id: string }) => i.id,
-          (item: { id: string }) => li({}, item.id),
+          (item: () => { id: string }) => li({}, item().id),
         ),
       ),
     );
@@ -413,6 +413,66 @@ test("For: 重複キーで throw", () => {
     threw = true;
   }
   assert.ok(threw, "For: 重複キーで throw");
+});
+test("For: 同じ key・新オブジェクトで行内が更新される（#17）", () => {
+  const { ul, li } = tags;
+  const items = signal([
+    { id: "a", done: false },
+    { id: "b", done: false },
+  ]);
+  let rendered = 0;
+  const el = mount();
+  el.append(
+    ul(
+      For(
+        items,
+        (i) => i.id,
+        (item) => {
+          rendered++;
+          return li({ "data-id": item().id }, () => (item().done ? "✓" : "・"));
+        },
+      ),
+    ),
+  );
+  const cell = (id: string) => el.querySelector(`li[data-id="${id}"]`)!.textContent;
+  const aBefore = el.querySelector('li[data-id="a"]');
+  assert.ok(cell("a") === "・" && cell("b") === "・", "For#17: 初期描画");
+
+  // immutable 更新（同 key・新オブジェクト）
+  items.value = items.value.map((x) => ({ ...x, done: true }));
+  assert.ok(cell("a") === "✓" && cell("b") === "✓", "For#17: 同 key 新オブジェクトで穴が更新");
+  assert.ok(aBefore === el.querySelector('li[data-id="a"]'), "For#17: 行ノードは使い回す");
+  assert.equal(rendered, 2, "For#17: 再 render はしない（穴だけ更新）");
+});
+test("For: render に index が渡る（#18）", () => {
+  const { ul, li } = tags;
+  const items = signal([{ id: "a" }, { id: "b" }, { id: "c" }]);
+  const el = mount();
+  el.append(
+    ul(
+      For(
+        items,
+        (i) => i.id,
+        (item, index) => li({ "data-id": item().id }, () => `${index() + 1}:${item().id}`),
+      ),
+    ),
+  );
+  const cell = (id: string) => el.querySelector(`li[data-id="${id}"]`)!.textContent;
+  assert.ok(
+    cell("a") === "1:a" && cell("b") === "2:b" && cell("c") === "3:c",
+    "For#18: 初期 index",
+  );
+
+  // 並べ替え → index が更新される
+  items.value = [items.value[2], items.value[0], items.value[1]]; // c, a, b
+  assert.ok(
+    cell("c") === "1:c" && cell("a") === "2:a" && cell("b") === "3:b",
+    "For#18: 並べ替えで index が更新",
+  );
+
+  // 先頭削除 → 後続の index が繰り上がる
+  items.value = items.value.filter((i) => i.id !== "c"); // a, b
+  assert.ok(cell("a") === "1:a" && cell("b") === "2:b", "For#18: 削除で index が繰り上がる");
 });
 
 // === Show ===
@@ -814,7 +874,7 @@ test("For: signal 直渡し", () => {
       For(
         items,
         (i: { id: string }) => i.id,
-        (item: { id: string }) => li({ "data-id": item.id }, item.id),
+        (item: () => { id: string }) => li({ "data-id": item().id }, item().id),
       ),
     ),
   );
