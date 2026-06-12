@@ -10,8 +10,9 @@
 //   - 穴(${...})だけを「属性／イベント／子」として後から配線し、関数なら effect を張る
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
+
+import { setAttr, toNode } from "./node.js";
 import { effect, isSignal } from "./reactive.js";
-import { toNode, setAttr } from "./node.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -26,15 +27,17 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
   // 1. 穴に目印を埋めた HTML 文字列を組み立てる。
   //    タグの中（属性位置）なら値トークン、それ以外（子位置）ならコメントを挿す。
   let src = "";
-  let inTag = false;     // 今 <...> の内側か（属性位置か）
-  let quote = "";        // タグ内で開いている引用符（" か '）
+  let inTag = false; // 今 <...> の内側か（属性位置か）
+  let quote = ""; // タグ内で開いている引用符（" か '）
   for (let i = 0; i < strings.length; i++) {
     const s = strings[i];
-    for (let j = 0; j < s.length; j++) {       // 直前の静的文字列を走査して inTag を更新
+    for (let j = 0; j < s.length; j++) {
+      // 直前の静的文字列を走査して inTag を更新
       const c = s[j];
       if (inTag) {
-        if (quote) { if (c === quote) quote = ""; }
-        else if (c === '"' || c === "'") quote = c;
+        if (quote) {
+          if (c === quote) quote = "";
+        } else if (c === '"' || c === "'") quote = c;
         else if (c === ">") inTag = false;
       } else if (c === "<") inTag = true;
     }
@@ -61,7 +64,7 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
   for (const el of elements) {
     for (const attr of [...el.attributes]) {
       const { name, value } = attr;
-      const m = value.match(COMMENT_RE);          // 値ぜんぶが1つの穴か
+      const m = value.match(COMMENT_RE); // 値ぜんぶが1つの穴か
       if (m) {
         const v = values[Number(m[1])];
         if (name.startsWith("on") && typeof v === "function") {
@@ -72,9 +75,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
         } else if (isSignal(v)) {
           effect(() => setAttr(el, name, v.value)); // シグナル直接
         } else {
-          setAttr(el, name, v);                   // null/false/真偽の意味を保つ
+          setAttr(el, name, v); // null/false/真偽の意味を保つ
         }
-      } else if (ATTR_RE.test(value)) {           // "btn ${...}" のような部分埋め込み
+      } else if (ATTR_RE.test(value)) {
+        // "btn ${...}" のような部分埋め込み
         ATTR_RE.lastIndex = 0;
         wireDynamicAttr(el, name, value, values);
       }
@@ -115,7 +119,8 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
 
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */
 function trimEdges(frag: DocumentFragment): void {
-  const isBlank = (n: ChildNode | null) => n != null && n.nodeType === 3 && !/\S/.test(n.textContent || "");
+  const isBlank = (n: ChildNode | null) =>
+    n != null && n.nodeType === 3 && !/\S/.test(n.textContent || "");
   while (isBlank(frag.firstChild)) frag.firstChild!.remove();
   while (isBlank(frag.lastChild)) frag.lastChild!.remove();
 }

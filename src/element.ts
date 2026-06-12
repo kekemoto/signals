@@ -18,7 +18,7 @@
 //     isConnected=false なら本当に切り離されたと判断して dispose する。
 //     DOM 内での「移動」は disconnect→connect が連続して起きるだけなので、状態は保たれる。
 //     本当に切り離してから別の場所へ再接続した場合は setup を作り直す（状態はリセット）。
-import { createRoot, signal, onCleanup, type Signal } from "./reactive.js";
+import { createRoot, onCleanup, type Signal, signal } from "./reactive.js";
 
 /** defineElement のオプション。 */
 export interface DefineOptions {
@@ -44,9 +44,7 @@ export interface SetupContext {
 }
 
 /** Custom Element の中身を組む関数。createRoot 内で1回呼ばれ、返した Node がマウントされる。 */
-export type Setup = (
-  ctx: SetupContext,
-) => Node | null | undefined | void;
+export type Setup = (ctx: SetupContext) => Node | null | undefined | void;
 
 // host に紐づく文脈（host + ヘルパー）を作る。
 // MutationObserver は最初に attr() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
@@ -66,17 +64,18 @@ function makeContext(host: HTMLElement): SetupContext {
         // Element だけが slot 属性を持てる。テキスト/コメントは常にデフォルトスロット行き。
         const slotName = (n as Partial<Element>).getAttribute?.("slot") ?? null;
         const match = name != null ? slotName === name : slotName == null;
-        if (match) frag.append(n);              // 退避済みの子を frag へ移す
+        if (match) frag.append(n); // 退避済みの子を frag へ移す
       }
       return frag;
     },
     attr(name: string): Signal<string | null> {
       let sig = signals.get(name);
-      if (sig) return sig;                       // 同じ属性名には同じ signal を返す
+      if (sig) return sig; // 同じ属性名には同じ signal を返す
       sig = signal(host.getAttribute(name));
       signals.set(name, sig);
 
-      if (!observer) {                           // 初回だけ観測を開始
+      if (!observer) {
+        // 初回だけ観測を開始
         observer = new MutationObserver((records) => {
           for (const r of records) {
             const key = r.attributeName;
@@ -85,7 +84,7 @@ function makeContext(host: HTMLElement): SetupContext {
           }
         });
         observer.observe(host, { attributes: true });
-        onCleanup(() => observer!.disconnect());  // dispose 時（disconnected）に観測を止める
+        onCleanup(() => observer!.disconnect()); // dispose 時（disconnected）に観測を止める
       }
       return sig;
     },
@@ -108,7 +107,7 @@ export function defineElement(
     #dispose: (() => void) | null = null;
 
     connectedCallback(): void {
-      if (this.#dispose) return;            // 既にマウント済み（移動による再接続もここで弾く）
+      if (this.#dispose) return; // 既にマウント済み（移動による再接続もここで弾く）
       createRoot((dispose) => {
         this.#dispose = dispose;
         const node = setup(makeContext(this));
@@ -120,10 +119,10 @@ export function defineElement(
       // 即 dispose せず次のマイクロタスクまで待つ。DOM 内の「移動」は disconnect→connect が
       // 連続するだけなので、その時点でまだ未接続なら本当に切り離されたと判断して畳む。
       queueMicrotask(() => {
-        if (this.isConnected) return;       // 移動だった → 何もしない（状態を保つ）
-        this.#dispose?.();                  // root を畳む（effect / MutationObserver / onCleanup を全解放）
+        if (this.isConnected) return; // 移動だった → 何もしない（状態を保つ）
+        this.#dispose?.(); // root を畳む（effect / MutationObserver / onCleanup を全解放）
         this.#dispose = null;
-        this.replaceChildren();             // 中身を空にする（通常タグ同様、サブツリーごと破棄）。再接続時は setup し直す
+        this.replaceChildren(); // 中身を空にする（通常タグ同様、サブツリーごと破棄）。再接続時は setup し直す
       });
     }
   }

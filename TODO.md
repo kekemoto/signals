@@ -240,10 +240,13 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 
 ## テスト・インフラ
 
-### 25. lint / format が未設定 [未実装]
+### 25. lint / format が未設定 [対応済み]
 
-**対応案**: 単一ツールで済む Biome（`biome check`）を devDependencies に足し、
-CI に1ステップ追加する。
+Biome（`biome check`）を devDependencies に追加し、`biome.json` で設定。`npm run lint` /
+`npm run format` を用意し、CI に lint ジョブを1つ追加した（`src/` と `test/` が対象）。
+このライブラリのコンパクトな記法に合わせて行幅は 100、`noNonNullAssertion` /
+`noConfusingVoidType` は意図的な書き方なので無効化、テストの `any` / 未初期化 `let` は
+override で許可している。
 
 ### 26. npm publish の自動化がない [未実装]
 

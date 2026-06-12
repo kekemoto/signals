@@ -5,7 +5,7 @@
 //   - 行は createRoot で独立スコープにするので、リスト全体が再評価されても
 //     生き残る行の effect は畳まれない（＝行ごとの状態が保たれる）
 //   - 消えた key の行だけ dispose して DOM から除去する
-import { effect, createRoot, isSignal, type Signal } from "./reactive.js";
+import { createRoot, effect, isSignal, type Signal } from "./reactive.js";
 
 interface Entry {
   node: Node;
@@ -21,14 +21,14 @@ export function For<T>(
   const start = document.createComment("for");
   const end = document.createComment("/for");
   const frag = document.createDocumentFragment();
-  frag.append(start, end);                  // この2つの間にリストを並べる
+  frag.append(start, end); // この2つの間にリストを並べる
 
-  let entries = new Map<unknown, Entry>();   // key -> { node, dispose }
+  let entries = new Map<unknown, Entry>(); // key -> { node, dispose }
 
   effect(() => {
-    const items = itemsFn();                 // ここで配列を購読（変わると再実行）
+    const items = itemsFn(); // ここで配列を購読（変わると再実行）
     const parent = end.parentNode;
-    if (!parent) return;                     // まだ DOM に挿入されていない
+    if (!parent) return; // まだ DOM に挿入されていない
 
     const keys = items.map(keyFn);
     const next = new Map<unknown, Entry>();
@@ -41,7 +41,10 @@ export function For<T>(
       if (!entry) {
         let node!: Node;
         let dispose!: () => void;
-        createRoot((d) => { dispose = d; node = render(item); }); // 行ごとの独立スコープ
+        createRoot((d) => {
+          dispose = d;
+          node = render(item);
+        }); // 行ごとの独立スコープ
         entry = { node, dispose };
       }
       next.set(key, entry);
@@ -50,7 +53,10 @@ export function For<T>(
 
     // 2. 消えた key の行だけ片付ける（dispose で行内の effect も止める）
     for (const [key, entry] of entries) {
-      if (!next.has(key)) { entry.dispose(); (entry.node as ChildNode).remove(); }
+      if (!next.has(key)) {
+        entry.dispose();
+        (entry.node as ChildNode).remove();
+      }
     }
 
     // 3. 新しい順序に並べ替え（end の手前へ順に挿入＝使い回しノードは移動するだけ）

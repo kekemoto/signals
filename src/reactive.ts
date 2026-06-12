@@ -55,10 +55,10 @@ type Subscribers = Set<Computation>;
 
 // 所有ツリーのノード。effect の本体(run)と createRoot の根が共通で持つ。
 interface Owner {
-  deps: Set<Subscribers>;        // 自分が購読している購読者リスト（古い依存の掃除用）
-  children: Set<Computation>;    // 子ノード（自分の中で作られた effect / memo）
-  cleanups: Array<() => void>;   // onCleanup で登録された後始末
-  owner: Owner | null;           // 作成時の親
+  deps: Set<Subscribers>; // 自分が購読している購読者リスト（古い依存の掃除用）
+  children: Set<Computation>; // 子ノード（自分の中で作られた effect / memo）
+  cleanups: Array<() => void>; // onCleanup で登録された後始末
+  owner: Owner | null; // 作成時の親
 }
 
 // 依存追跡の対象になる computation。run() で再実行される callable な Owner。
@@ -68,11 +68,11 @@ interface Computation extends Owner {
 
 // --- 内部状態 ---------------------------------------------------------------
 let activeComputation: Computation | null = null; // いま依存を集めている effect（observer）
-let currentOwner: Owner | null = null;             // いまの所有ツリーの親（effect か createRoot の根）
-let batchDepth = 0;                                // batch() のネスト深さ
-let flushing = false;                              // いま flush 中か（再入を1つに束ねる）
-const pendingEffects = new Set<Computation>();     // バッチ終了時にまとめて走らせる effect
-const FLUSH_LIMIT = 1000;                          // 1回の flush で許す「世代」数（暴走検出の閾値）
+let currentOwner: Owner | null = null; // いまの所有ツリーの親（effect か createRoot の根）
+let batchDepth = 0; // batch() のネスト深さ
+let flushing = false; // いま flush 中か（再入を1つに束ねる）
+const pendingEffects = new Set<Computation>(); // バッチ終了時にまとめて走らせる effect
+const FLUSH_LIMIT = 1000; // 1回の flush で許す「世代」数（暴走検出の閾値）
 
 // 溜まった effect を実行する。空になるまで「世代」単位で繰り返す（while ループ）。
 //
@@ -89,7 +89,7 @@ const FLUSH_LIMIT = 1000;                          // 1回の flush で許す「
 // 投げ直す。pending は世代ごとに実行前クリアするので、途中で抜けても無関係な effect を
 // 巻き添えにしない。
 function flush(): void {
-  if (flushing) return;                 // 既に回している → 積まれた分は外側の while が拾う
+  if (flushing) return; // 既に回している → 積まれた分は外側の while が拾う
   flushing = true;
   let firstError: unknown;
   let errored = false;
@@ -97,7 +97,7 @@ function flush(): void {
   try {
     while (pendingEffects.size) {
       if (++passes > FLUSH_LIMIT) {
-        pendingEffects.clear();         // 暴走したキューは捨てて回復可能にする
+        pendingEffects.clear(); // 暴走したキューは捨てて回復可能にする
         throw new Error(
           "flush が収束しません（effect が自分の依存を書き換え続ける無限ループの可能性）",
         );
@@ -108,7 +108,10 @@ function flush(): void {
         try {
           run();
         } catch (err) {
-          if (!errored) { firstError = err; errored = true; }
+          if (!errored) {
+            firstError = err;
+            errored = true;
+          }
         }
       }
     }
@@ -139,9 +142,9 @@ function unsubscribe(node: Owner): void {
 function cleanup(node: Owner): void {
   for (const child of node.children) cleanup(child); // 子を先に畳む（深い方から）
   node.children.clear();
-  for (const fn of node.cleanups) fn();              // ユーザー登録の後始末
+  for (const fn of node.cleanups) fn(); // ユーザー登録の後始末
   node.cleanups.length = 0;
-  unsubscribe(node);                                 // 購読解除
+  unsubscribe(node); // 購読解除
 }
 
 // node を完全に破棄する: サブツリーを掃除し、親の children からも外す。
@@ -172,15 +175,15 @@ export function signal<T>(initial: T): Signal<T> {
   const subscribers: Subscribers = new Set();
   return {
     get value(): T {
-      track(subscribers);                 // 読まれた → 依存登録
+      track(subscribers); // 読まれた → 依存登録
       return value;
     },
     set value(next: T) {
       if (Object.is(next, value)) return; // 無変化なら何もしない
       value = next;
-      notify(subscribers);                // 購読者へ通知
+      notify(subscribers); // 購読者へ通知
     },
-    peek: () => value,                    // 追跡せずに読む
+    peek: () => value, // 追跡せずに読む
   };
 }
 
@@ -197,13 +200,13 @@ export function isSignal(x: unknown): x is Signal<unknown> {
 // 作成時の親(owner) をプロパティとして持ち回る。
 export function effect(fn: () => void): () => void {
   const run = (() => {
-    cleanup(run);                         // 毎回、前回の子・後始末・依存を捨ててから
+    cleanup(run); // 毎回、前回の子・後始末・依存を捨ててから
     const prevObserver = activeComputation;
     const prevOwner = currentOwner;
-    activeComputation = run;              // 依存追跡の対象を自分に
-    currentOwner = run;                   // 所有ツリーの親も自分に
+    activeComputation = run; // 依存追跡の対象を自分に
+    currentOwner = run; // 所有ツリーの親も自分に
     try {
-      fn();                               // fn 内の signal 読み取りを依存として収集
+      fn(); // fn 内の signal 読み取りを依存として収集
     } finally {
       activeComputation = prevObserver;
       currentOwner = prevOwner;
@@ -212,10 +215,10 @@ export function effect(fn: () => void): () => void {
   run.deps = new Set();
   run.children = new Set();
   run.cleanups = [];
-  run.owner = currentOwner;               // 作成時の親（再実行では変わらない）
+  run.owner = currentOwner; // 作成時の親（再実行では変わらない）
   if (currentOwner) currentOwner.children.add(run); // 親にぶら下げる
   run();
-  return () => dispose(run);              // dispose（サブツリーごと畳む）
+  return () => dispose(run); // dispose（サブツリーごと畳む）
 }
 
 // --- onCleanup --------------------------------------------------------------
@@ -236,7 +239,7 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
   const prevOwner = currentOwner;
   const prevObserver = activeComputation;
   currentOwner = owner;
-  activeComputation = null;             // 根の直下での生読みは追跡しない（untrack）
+  activeComputation = null; // 根の直下での生読みは追跡しない（untrack）
   try {
     return fn(() => dispose(owner));
   } finally {
@@ -261,11 +264,12 @@ export function memo<T>(fn: () => T): Memo<T> {
   // 初期値 undefined → 初回結果 の余計な1段差（spurious cutoff）も生じない。
   let cache!: Signal<T>;
   const disposeMemo = effect(() => {
-    const next = fn();                      // 依存が変わるたび計算
-    if (cache) cache.value = next;          // 2回目以降: 書き込み（Object.is で下流を間引く）
-    else cache = signal(next);              // 初回: 結果で signal を作る
+    const next = fn(); // 依存が変わるたび計算
+    if (cache)
+      cache.value = next; // 2回目以降: 書き込み（Object.is で下流を間引く）
+    else cache = signal(next); // 初回: 結果で signal を作る
   });
   const read = (() => cache.value) as Memo<T>; // 読み口（fullName() のように呼ぶ）
-  read.dispose = disposeMemo;                  // 任意: 内部 effect の解放用
+  read.dispose = disposeMemo; // 任意: 内部 effect の解放用
   return read;
 }
