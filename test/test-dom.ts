@@ -487,6 +487,38 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("defineElement: dispose で利用者の子は残る", !!el.querySelector(".user"));
 }
 
+// === defineElement: ctx.slot で light DOM の子を出力内へ投影 ===
+{
+  const { div, header, section } = tags;
+  defineElement("x-slotted", ({ slot }) =>
+    div({ class: "card" },
+      header({ class: "h" }, slot("title")),   // slot="title" の子
+      section({ class: "b" }, slot()),         // 名前なしの子
+    ));
+  const el = document.createElement("x-slotted");
+  el.innerHTML = `<h2 slot="title">見出し</h2><p>本文</p>`;
+  document.body.append(el);
+
+  const h = el.querySelector(".h");
+  const b = el.querySelector(".b");
+  check("slot: 名前付きの子が header へ", h?.querySelector("h2")?.textContent === "見出し");
+  check("slot: 名前なしの子が section へ", b?.querySelector("p")?.textContent === "本文");
+  check("slot: 投影は移動なので元の位置には残らない", el.querySelectorAll(".card h2").length === 1);
+}
+
+// === defineElement: 一致しない slot は空、拾われない子は兄弟として残る ===
+{
+  const { div } = tags;
+  defineElement("x-slot-rest", ({ slot }) =>
+    div({ class: "named" }, slot("foo")));     // 名前なしの子は拾わない
+  const el = document.createElement("x-slot-rest");
+  el.innerHTML = `<p class="loose">残る</p>`;
+  document.body.append(el);
+
+  check("slot: 一致しない slot は空", el.querySelector(".named")?.childNodes.length === 0);
+  check("slot: 拾われない子は host 直下に残る", el.querySelector(":scope > .loose")?.textContent === "残る");
+}
+
 // === For / Show: signal を直接渡す（() => sig.value のラップ不要）===
 {
   const { ul, li } = tags;

@@ -32,6 +32,15 @@ export interface SetupContext {
   host: HTMLElement;
   /** 属性 name を映す signal を返す（同じ name には同じ signal を返す）。属性が変わると .value も変わる。 */
   attr(name: string): Signal<string | null>;
+  /**
+   * 接続時に利用者が host 直下へ書いていた light DOM の子を取り出す（静的投影）。
+   * - `slot()` … `slot` 属性のない子（デフォルトスロット）。
+   * - `slot("title")` … `slot="title"` を付けた子。
+   * 戻り値（DocumentFragment）を setup の出力の好きな位置に置けば、そこへ子が差し込まれる。
+   * 取り出した子はそのノードごと移動する（複製ではない）。どの slot でも拾わなかった子は
+   * host 直下にそのまま残り、出力の兄弟として描画される。
+   */
+  slot(name?: string): DocumentFragment;
 }
 
 /** Custom Element の中身を組む関数。createRoot 内で1回呼ばれ、返した Node がマウントされる。 */
@@ -44,9 +53,21 @@ export type Setup = (
 function makeContext(host: HTMLElement): SetupContext {
   const signals = new Map<string, Signal<string | null>>();
   let observer: MutationObserver | null = null;
+  // setup が host を書き換える前の、接続時点の light DOM の子を控える（slot 用）。
+  const lightChildren = [...host.childNodes];
 
   return {
     host,
+    slot(name?: string): DocumentFragment {
+      const frag = document.createDocumentFragment();
+      for (const n of lightChildren) {
+        // Element だけが slot 属性を持てる。テキスト/コメントは常にデフォルトスロット行き。
+        const slotName = (n as Partial<Element>).getAttribute?.("slot") ?? null;
+        const match = name != null ? slotName === name : slotName == null;
+        if (match) frag.append(n);              // host から frag へノードごと移動
+      }
+      return frag;
+    },
     attr(name: string): Signal<string | null> {
       let sig = signals.get(name);
       if (sig) return sig;                       // 同じ属性名には同じ signal を返す

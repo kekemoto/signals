@@ -388,6 +388,39 @@ defineElement("x-toggle", ({ host }) => {
 });
 ```
 
+**子の投影（slot）**: `ctx.slot(name?)` は、接続時に利用者が host 直下へ書いていた light DOM の
+子を取り出して返す。返り値（`DocumentFragment`）を `setup` の出力の好きな位置に置けば、そこへ
+子が差し込まれる。`slot("title")` は `slot="title"` を付けた子、`slot()`（引数なし）は `slot`
+属性のない子（デフォルト）を拾う。
+
+```js
+defineElement("x-card", ({ slot }) => {
+  const { div, header, section } = tags;
+  return div({ class: "card" },
+    header(slot("title")),   // slot="title" の子がここへ
+    section(slot()),         // 名前なしの子がここへ
+  );
+});
+```
+
+```html
+<x-card>
+  <h2 slot="title">見出し</h2>
+  <p>本文</p>
+</x-card>
+<!-- ↓ 接続後 -->
+<x-card>
+  <div class="card">
+    <header><h2 slot="title">見出し</h2></header>
+    <section><p>本文</p></section>
+  </div>
+</x-card>
+```
+
+Shadow DOM の `<slot>` と違い「接続時点の子を1回配置する静的投影」で、`slotchange` 相当の
+動的追従はしない。取り出した子はそのノードごと**移動**する（複製ではない）。どの `slot` でも
+拾わなかった子は host 直下に残り、出力の兄弟として描画される。
+
 描画先は host 直下（light DOM）。
 
 > **再接続の挙動**: 切断（`disconnectedCallback`）では即 dispose せず、次のマイクロタスクまで
