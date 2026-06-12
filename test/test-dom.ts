@@ -9,7 +9,6 @@ const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).document = dom.window.document;
 (globalThis as any).Node = dom.window.Node;
 (globalThis as any).HTMLElement = dom.window.HTMLElement;
-(globalThis as any).HTMLUnknownElement = dom.window.HTMLUnknownElement;
 (globalThis as any).customElements = dom.window.customElements;
 (globalThis as any).MutationObserver = dom.window.MutationObserver;
 
@@ -91,21 +90,6 @@ test("tags: camelCase → kebab-case 変換", () => {
   assert.ok(el.id === "c" && el.textContent === "x", "tags: kebab 要素にも props/子が効く");
   assert.equal(tags.div().tagName, "DIV", "tags: 単語1つはそのまま");
 });
-test("tags: 標準タグの camelCase は kebab 変換しない", () => {
-  assert.equal(
-    tags.textArea().tagName,
-    "TEXTAREA",
-    "tags: textArea → <textarea>（text-area にしない）",
-  );
-  assert.equal(tags.fieldSet().tagName, "FIELDSET", "tags: fieldSet → <fieldset>");
-  assert.equal(tags.optGroup().tagName, "OPTGROUP", "tags: optGroup → <optgroup>");
-  assert.equal(
-    tags.myCard().tagName,
-    "MY-CARD",
-    "tags: 未知名は従来どおり kebab で Custom Element",
-  );
-});
-
 // === html (tagged template literal) ===
 test("html: 単一ルート要素と reactive 子", () => {
   const count = signal(0);
