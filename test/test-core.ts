@@ -319,41 +319,6 @@ test("untrack: 中で作った effect は現在のスコープにぶら下がる
   assert.equal(inner, 1, "親 dispose で untrack 内の effect も畳まれる");
 });
 
-test("signal equals:false は同値でも毎回通知", () => {
-  const s = signal(0, { equals: false });
-  let runs = 0;
-  effect(() => {
-    s.value;
-    runs++;
-  });
-  s.value = 0; // 同じ値でも通知される
-  assert.equal(runs, 2, "equals:false は同値再代入でも再実行");
-});
-
-test("signal equals 関数で中身比較（参照が変わっても中身が同じなら据え置き）", () => {
-  const s = signal({ x: 1 }, { equals: (prev, next) => prev.x === next.x });
-  let runs = 0;
-  effect(() => {
-    s.value;
-    runs++;
-  });
-  s.value = { x: 1 }; // 参照は別だが x は同じ → 通知しない
-  assert.equal(runs, 1, "equals 関数が true なら据え置き");
-  s.value = { x: 2 }; // x が変わった → 通知
-  assert.equal(runs, 2, "equals 関数が false なら再実行");
-});
-
-test("signal equals 省略時は Object.is（既定の後方互換）", () => {
-  const s = signal({ x: 1 });
-  let runs = 0;
-  effect(() => {
-    s.value;
-    runs++;
-  });
-  s.value = { x: 1 }; // 参照が違うので Object.is は false → 通知
-  assert.equal(runs, 2, "既定は参照比較（Object.is）");
-});
-
 test("store: 葉が signal になり、個別に反応する", () => {
   const s = store({ user: { name: "a", age: 20 }, ok: true });
   let seen,

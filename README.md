@@ -50,7 +50,7 @@ npm install @kekemoto/signals
 
 ## コア API
 
-### `signal(initial, options?)`
+### `signal(initial)`
 
 値を持つリアクティブセル。`.value` で読み書き、`.peek()` で追跡せずに読む。
 
@@ -62,21 +62,6 @@ console.log(count.value); // 0
 count.value++;
 console.log(count.value); // 1
 console.log(count.peek()); // 1（依存登録なし）
-```
-
-第2引数の `options.equals` で「変わった」と見なす判定を差し替えられる。既定は
-`Object.is`（参照比較）なので、配列・オブジェクトは中身が同じでも参照が変われば必ず
-通知される。
-
-```js
-// 中身で比較: 参照が変わっても要素が同じなら通知しない
-const items = signal([1, 2, 3], { equals: (a, b) =>
-  a.length === b.length && a.every((v, i) => v === b[i]),
-});
-
-// 常に通知: 同じ値を再代入しても下流を走らせたい（"信号"用途など）
-const ping = signal(0, { equals: false });
-ping.value = 0; // equals:false なら effect が走る
 ```
 
 ### `effect(fn)`

@@ -43,17 +43,6 @@ export interface Signal<T> {
   peek(): T;
 }
 
-/** `signal` の生成オプション。 */
-export interface SignalOptions<T> {
-  /**
-   * 値が「変わった」と見なす判定。書き込み時にこれが true を返すと通知しない。
-   *   - 省略時: `Object.is`（現行どおり）
-   *   - `false`: 常に変化扱い（毎回通知。同じ参照を再代入しても下流を走らせたいとき）
-   *   - 関数: 任意の比較（配列・オブジェクトを中身で比べる等）
-   */
-  equals?: false | ((prev: T, next: T) => boolean);
-}
-
 /** `memo` の読み口。関数として呼ぶと最新のキャッシュ値を返す。 */
 export interface Memo<T> {
   (): T;
@@ -191,13 +180,8 @@ function notify(subscribers: Subscribers): void {
 
 // --- signal -----------------------------------------------------------------
 // 値ひとつ＋購読者リストひとつのリアクティブセル。
-// equals で「無変化」の判定を差し替えられる（既定は Object.is）。配列・オブジェクトを
-// 中身で比べたい、あるいは常に通知したい（equals:false）といった場面で使う。
-export function signal<T>(initial: T, options?: SignalOptions<T>): Signal<T> {
+export function signal<T>(initial: T): Signal<T> {
   let value = initial;
-  // equals:false → 常に変化扱い / 関数 → そのまま / 省略 → Object.is
-  const equals = options?.equals;
-  const isEqual = equals === false ? () => false : (equals ?? Object.is);
   const subscribers: Subscribers = new Set();
   return {
     get value(): T {
@@ -205,7 +189,7 @@ export function signal<T>(initial: T, options?: SignalOptions<T>): Signal<T> {
       return value;
     },
     set value(next: T) {
-      if (isEqual(value, next)) return; // 無変化なら何もしない
+      if (Object.is(next, value)) return; // 無変化なら何もしない
       value = next;
       notify(subscribers); // 購読者へ通知
     },
