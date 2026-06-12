@@ -8,6 +8,8 @@
 
 - **[割り切り]** — ソースコメントや README で明示的に「対象外」と宣言しているもの
 - **[未実装]** — 単に手が回っていない・簡易実装のままのもの
+- **[バグ寄り]** — 仕様として意図していない挙動（リーク・誤動作）になっているもの
+- **[改善]** — 動作は正しいが、仕様・実装がより素直に書けるもの
 
 ---
 
@@ -237,13 +239,142 @@ README のコード片だけで、動かして試せるものがない。
 
 ---
 
+# 素直な仕様・実装にするための改善点
+
+機能追加ではなく「直感に反する挙動」や「遠回りな実装」を直すもの。
+（調査時点: 2026-06-12 / コードレビューによる）
+
+## reactive.ts（コア）
+
+### 29. dispose 済みの effect が「復活」する [バグ寄り]
+
+`dispose()` は購読解除と親からの切り離しはするが、`pendingEffects` に積まれた分は
+取り消さず、run 自体に「死んだ」印もない。そのため flush 中に先行の effect
+（例: `Show` の切り替え）が後続の effect を dispose しても、後続はそのまま実行され、
+signal を読んで再購読＝生き返る。「同じ signal に Show と行内 effect の両方が
+ぶら下がる」よくある構成で実害が出る。
+
+**対応案**: `Computation` に `disposed` フラグを1つ持たせ、`dispose()` で立てて
+flush（または `run` の冒頭）で弾く。数行で済む。
+
+### 30. `memo` の `cache!` 遅延初期化トリック [改善]
+
+「effect が同期実行されることに依存して初回だけ signal を作る」のは読み手に
+2段の前提を要求する。また初回の `fn()` が throw すると `cache` が未定義のまま
+`read()` が TypeError になる。
+
+**対応案**: `let cache: Signal<T> | undefined` ＋ 読み口での未初期化チェック、
+あるいは sentinel 値を使った素直な初期化に書き換える。挙動は変えずに前提を減らせる。
+
+### 31. `isSignal` が duck typing（`peek` を持てば signal 扱い） [バグ寄り]
+
+`peek` メソッドを持つ無関係なオブジェクト（イテレータ系ライブラリ等）を穴に渡すと
+誤って reactive 扱いになる。
+
+**対応案**: `const SIGNAL = Symbol()` のブランドプロパティを signal に付けて判定する。
+仕様として明確になり、型ガードも正確になる。
+
+### 32. `memo` の読み口が `signal` と非対称 [改善]
+
+signal は `.value` / `.peek()`、memo は関数呼び出しで `peek` なし・`dispose`
+プロパティ付き。「派生もただの関数」という思想は良いが、一貫性がない。
+
+**対応案**: `Memo` にも読み取り専用 `value` と `peek()` を生やし、`Signal` としても
+読めるようにする。穴への直渡し・`isSignal` 判定・untrack 代替がすべて一貫する。
+
+## node.ts（h / html 共通）
+
+### 33. 真偽値の扱いが属性と子で非対称・aria-\* で困る [バグ寄り]
+
+属性では `false` =削除・`true` =空文字だが、子では `false` =非表示なのに `true` は
+`"true"` と描画される。さらに `aria-hidden: false` のような「文字列の "false" を
+設定したい」属性（aria-\*/data-\*）では削除されてしまい回避策がない。
+
+**対応案**: 子の `true` も非表示にして対称にする。aria-\*/data-\* は `setAttr` で
+真偽値を文字列化する例外分岐を足すか、非対応と README に明記する。
+
+### 34. accessor 正規化の重複 [改善]
+
+`isSignal(x) ? () => x.value : x` というパターンが `for.ts` / `show.ts` / `node.ts` /
+`html.ts` の4ファイルに散らばっている。
+
+**対応案**: `node.ts` に `toAccessor(v)` を1つ置いて共用する。
+`Signal | (() => T)` を受ける仕様の一貫性も型で表現できる。
+
+## h.ts / html.ts
+
+### 35. イベント判定の `startsWith("on")` が h と html で微妙に違う [改善]
+
+`h` は `slice(2).toLowerCase()`、`html` は `slice(2)` のみ（HTML パーサが属性名を
+小文字化するので結果的に同じだが、camelCase のカスタムイベントは `html` では
+表現できない）。また `on` で始まる普通の属性名に関数を渡す道がない。
+
+**対応案**: 判定とイベント名変換を `node.ts` に1関数として共通化し、両者で同じ
+仕様にする。
+
+### 36. `tags` の kebab 変換が標準タグを壊す（`tags.textArea` → `<text-area>`） [バグ寄り]
+
+`tags.textArea` が `<textarea>` ではなく未知の Custom Element `<text-area>` になる。
+タイポと違いユーザーは「正しい camelCase を書いた」つもりなので、静かに壊れる罠。
+
+**対応案**: 小文字化のみで `HTMLElementTagNameMap` のタグ名に一致するものは
+kebab 変換しない、という1分岐を `toKebab` の前に足す。
+
+### 37. グローバル regex の `lastIndex` リセットハック [改善]
+
+`ATTR_RE` が `g` フラグ付きのモジュールグローバルで、`test()` 後に手動で
+`lastIndex = 0` している。状態を持つ regex は典型的な footgun。
+
+**対応案**: 判定は `value.includes(MARK)` にし、`split` 用の regex は使う場所で
+作る（または `g` なしの判定用 regex を分ける）。
+
+### 38. マジックナンバーと in ループ [改善]
+
+`html.ts` の `0x1 | 0x80`・`nodeType === 8`、`h.ts` の
+`for (const key in props || {})` ＋ 二重キャスト。
+
+**対応案**: `NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT`、`Node.COMMENT_NODE`、
+`if (props) for (const [key, v] of Object.entries(props))` に置き換える。
+
+## show.ts / for.ts
+
+### 39. `Show` の `render` が null を返すと dispose が捨てられる [バグ寄り]
+
+`make()` が null を返した場合、`createRoot` で作った dispose を `current` に
+保存しないため、render 内で張られた effect が二度と畳まれずリークする。
+
+**対応案**: node の有無にかかわらず常に `{ node, dispose }` を current として持つ。
+
+### 40. `createRoot` の `let dispose!:` 受け渡し定型の重複 [改善]
+
+non-null assertion 込みの同じ定型が `for.ts` / `show.ts` の2か所にある。
+
+**対応案**: `function rooted<T>(fn: () => T): { value: T; dispose: () => void }` の
+ような小ヘルパーに括り出し、`For` / `Show` 本体を宣言的にする。
+
+## element.ts
+
+### 41. 再接続すると slot 内容が永久に消える [バグ寄り]
+
+接続時に light DOM の子を退避し、dispose 時に `replaceChildren()` で全消去するため、
+再接続時の setup は空の lightChildren で走る。「再接続で状態リセット」は仕様どおり
+でも、ユーザーが書いた slot の子まで消えるのは予想外。
+
+**対応案**: 退避した元の子を dispose 時に host へ戻す。再接続が初回接続と同じ意味になる。
+
+---
+
 ## 優先度の目安
 
 | 優先 | 項目 | 理由 |
 |---|---|---|
+| 高 | #29 dispose 済み effect の復活 | Show + 行内 effect の構成で誤動作する |
+| 高 | #39 Show の render null でリーク | dispose が捨てられ effect が畳まれない |
 | 高 | #17 For の同 key 新オブジェクト | immutable 更新が静かに壊れる |
 | 中 | #1/#2 memo の lazy 化とグリッチ解消 | コアの質が上がるが書き換え規模が大きい |
 | 中 | #16 For の同位置スキップ | 数行で大半の無駄が消える |
 | 中 | #3 untrack / #4 equals | 小さく足せて効果が確実 |
+| 中 | #36 tags.textArea の罠 / #33 真偽値の非対称 | 静かに壊れる仕様の罠。1分岐で直る |
 | 低 | #9 SVG / #21 shadow DOM | 必要になったときに |
+| 低 | #30〜#38 の [改善] 各種 | 可読性・一貫性。挙動は変わらない |
 | 低 | #26, #28 インフラ整備 | 機能とは独立にいつでも |
