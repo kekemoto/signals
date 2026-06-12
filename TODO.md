@@ -224,6 +224,24 @@ signal は `.value` / `.peek()`、memo は関数呼び出しで `peek` なし・
 **対応案**: `node.ts` に `toAccessor(v)` を1つ置いて共用する。
 `Signal | (() => T)` を受ける仕様の一貫性も型で表現できる。
 
+### 42. 穴への signal 直渡しを廃止し「穴=関数」の単一ルールにするか [検討]
+
+現状、穴は `() => T`（関数穴）と `Signal`（bare 直渡し、`isSignal` の duck typing で判定）の
+2系統を受け付ける（`li(count)` ≡ `li(() => count.value)`）。これを「reactive な穴は関数だけ」に
+一本化すべきか、という**やるか否かの判断事項**。実装方針ではなく方針決定がここでのゴール。
+
+- **廃止する利点**: 「穴が reactive ⇔ 関数」という単一ルールになり、ユーザーのメンタルモデルが
+  一貫する。`isSignal` の duck typing（#31）も判定自体が不要になり footgun が根本から消える。
+- **廃止の代償**: `store` の売りである「葉=signal を穴に bare 直渡し」（`span(state.user.name)`）が
+  失われ、`span(() => state.user.name.value)` になる＝素の signal を手で並べるのと変わらなくなる。
+  README の `h("div", { "data-n": count }, count)` 等の例も全面的に `() =>` 必須になる。
+- **For への影響はない**: `For` の `item` / `index` は accessor なので、bare 直渡しの有無に関わらず
+  穴の書き味（`() => item().text`）は変わらない。これは純粋に穴の一般 API と `store` の扱いの問題。
+
+**判断の軸**: `store` の bare 直渡しモデルを主力として守るなら**残す**（その場合 #31 はブランド
+Symbol 判定に直せば、直渡しを残したまま誤判定の footgun だけ消せる）。`store` を主力に据えず
+「穴=関数」の単純さと #31 解消を優先するなら**廃止**する。まず残す/廃止を決める。
+
 ## h.ts / html.ts
 
 ### 35. イベント判定の `startsWith("on")` が h と html で微妙に違う [改善]
