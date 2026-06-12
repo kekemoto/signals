@@ -124,6 +124,57 @@ test("memo: value-cutoff（結果が同じなら下流は走らない）", () =>
   assert.equal(runs, 2, "cutoff 結果変化で下流実行");
 });
 
+test("memo: lazy（読まれなければ計算しない / #1）", () => {
+  const a = signal(1);
+  let calc = 0;
+  const m = memo(() => {
+    calc++;
+    return a.value * 2;
+  });
+  assert.equal(calc, 0, "memo 生成だけでは計算しない");
+  a.value = 2;
+  assert.equal(calc, 0, "未使用 memo は入力変化でも計算しない");
+  assert.equal(m(), 4, "初めて読んだ時点で計算（値）");
+  assert.equal(calc, 1, "初めて読んだ時点で計算（回数）");
+  a.value = 3;
+  assert.equal(calc, 1, "入力変化しても読まれるまで再計算しない");
+  assert.equal(m(), 6, "再び読むと最新値（値）");
+  assert.equal(calc, 2, "再び読むと再計算（回数）");
+});
+
+test("memo: 生入力と memo を同じ effect で読んでも二重実行しない（グリッチなし / #2）", () => {
+  const a = signal(1);
+  const double = memo(() => a.value * 2);
+  let runs = 0;
+  let seen: [number, number] = [0, 0];
+  effect(() => {
+    runs++;
+    seen = [a.value, double()]; // 生入力と memo を同じ effect で読む
+  });
+  assert.equal(runs, 1, "初回1回");
+  assert.deepEqual(seen, [1, 2], "初回の値");
+  a.value = 5;
+  assert.equal(runs, 2, "a 変更で effect は1回だけ（a 由来＋memo 由来の二重実行なし）");
+  assert.deepEqual(seen, [5, 10], "変更後の値も整合（グリッチなし）");
+});
+
+test("memo: ダイヤモンド依存でも下流 effect は1回（中間 memo 経由）", () => {
+  const a = signal(1);
+  const b = memo(() => a.value + 1);
+  const c = memo(() => a.value + 2);
+  let runs = 0;
+  let sum = 0;
+  effect(() => {
+    runs++;
+    sum = b() + c();
+  });
+  assert.equal(runs, 1, "初回1回");
+  assert.equal(sum, 5, "初回 (1+1)+(1+2)");
+  a.value = 10;
+  assert.equal(runs, 2, "共通入力 a の変更でも下流 effect は1回だけ");
+  assert.equal(sum, 23, "変更後 (10+1)+(10+2)");
+});
+
 test("ネストした batch", () => {
   const a = signal(0);
   let runs = 0;

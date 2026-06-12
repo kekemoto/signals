@@ -106,11 +106,14 @@ test("memo: トップレベル memo は read.dispose で止められる", () => 
     calc++;
     return a.value;
   });
-  m();
+  assert.equal(m(), 1, "初回読みで計算");
+  assert.equal(calc, 1, "初回計算は1回");
   a.value = 2;
-  assert.equal(calc, 2, "dispose 前は追従");
+  assert.equal(m(), 2, "入力変化後の読みで再計算（値）");
+  assert.equal(calc, 2, "入力変化後の読みで再計算（回数）");
   m.dispose();
   a.value = 3;
+  assert.equal(m(), 2, "dispose 後は再計算されず古い値のまま");
   assert.equal(calc, 2, "read.dispose 後は止まる");
 });
 
