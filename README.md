@@ -203,6 +203,7 @@ stop(); // 配下の effect をすべて解放
 ### `h(tag, props?, ...children)`
 
 最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
+キー名に `.` を付けると DOM プロパティ代入（`.items` → `el.items = v`）、`onXxx` はイベント。
 子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、第2引数が
 プレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
 
@@ -255,7 +256,8 @@ document.body.append(el);
 
 タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
 静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
-関数 / シグナルの穴は reactive（属性・子）になり、`onXxx=${fn}` はイベントになる。
+関数 / シグナルの穴は reactive（属性・子）になり、`onXxx=${fn}` はイベント、
+`.foo=${v}` は DOM プロパティ代入になる。
 
 ```js
 import { html } from "@kekemoto/signals/html";
@@ -278,12 +280,31 @@ document.body.append(el);
 - 子の関数穴は `Node` / 配列も返せる。素の `.map` でリスト、三項演算子で条件分岐が書ける。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
 
-> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: 設定する値（関数・シグナルなら
-> その評価結果）が**オブジェクト・配列**なら、属性ではなく DOM **プロパティ**に代入される
-> （`el.items = [...]` — 属性は文字列しか運べないため。Custom Element にリッチな値を渡す口）。
-> また **`value` / `checked` / `selected` / `disabled`** は属性だと「初期値」しか変わらないため、
-> 常にプロパティを更新する（ユーザーが input に入力した後でも signal の変更が画面に反映される）。
-> それ以外のキーは従来どおり属性になる。
+> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: キー名に **`.` を付けると
+> DOM プロパティ**への代入になり（`el.foo = v`）、付けなければ従来どおり**属性**になる。
+> 値の型では判定しない（明示一本）。
+>
+> ```js
+> // 属性（文字列化される。null / false は属性を外し、true は空文字）
+> h("a", { href: url, "aria-hidden": hidden });
+> html`<a href=${url}></a>`;
+>
+> // DOM プロパティ（`.` 接頭辞）。オブジェクト・配列などリッチな値もそのまま渡せる
+> h("x-list", { ".items": () => items.value });        // el.items = [...]（Custom Element の口）
+> html`<x-list .items=${() => items.value}></x-list>`;
+> ```
+>
+> フォーム要素の **`value` / `checked` / `selected`** は、属性だと「初期値」しか変えられず
+> ユーザー入力後は属性とプロパティが乖離する。signal の変更を常に画面へ反映したいなら
+> **`.value` / `.checked`**（プロパティ穴）を使う:
+>
+> ```js
+> html`<input .value=${() => text.value}>`;   // 入力後も signal の変更が反映される
+> html`<input value=${"既定値"}>`;            // 初期値だけ（入力後は更新しても効かない）
+> ```
+>
+> プロパティ穴は値を丸めず素のまま代入する。`.value=${null}` を空にしたいなら
+> `.value=${() => text.value ?? ""}` のように呼び出し側で処理する。
 
 ```js
 const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);

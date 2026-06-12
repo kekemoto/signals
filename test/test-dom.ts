@@ -123,10 +123,20 @@ test("html: 部分埋め込み 属性", () => {
 });
 test("html: 静的な穴で属性を設定 / false で外す", () => {
   const el = html`<input value=${"hello"} disabled=${false} title=${"t"}>` as HTMLInputElement;
-  assert.equal(el.value, "hello", "html: value の穴はプロパティに入る");
+  assert.equal(el.getAttribute("value"), "hello", "html: 接頭辞なしの穴は属性に入る");
   assert.equal(el.disabled, false, "html: false の穴で disabled が外れる");
   assert.ok(!el.hasAttribute("disabled"), "html: マーカー属性が残らない");
   assert.equal(el.getAttribute("title"), "t", "html: 通常キーは従来どおり属性");
+});
+test("html: `.value` 穴は DOM プロパティに入る（入力後も反映）", () => {
+  const text = signal("first");
+  const el = html`<input .value=${() => text.value}>` as HTMLInputElement;
+  assert.equal(el.value, "first", "html: .value 初期値");
+  assert.ok(!el.hasAttribute(".value"), "html: `.value` という属性は残らない");
+  assert.ok(!el.hasAttribute("value"), "html: プロパティ穴は属性に書かない");
+  el.value = "user typed"; // ユーザー入力で乖離
+  text.value = "second";
+  assert.equal(el.value, "second", "html: 乖離後も signal の変更が反映される");
 });
 test("html: 構築は1回（穴だけ更新）", () => {
   const count = signal(0);
@@ -683,30 +693,34 @@ test("defineElement: upgrade 前のプロパティ代入を初期値として拾
     "defineElement: accessor 設置後の代入も signal に入る",
   );
 });
-test("setAttr: リッチな値はプロパティ代入になる（h 経由）", () => {
+test("prop: `.foo` はリッチな値を DOM プロパティに入れる（h 経由）", () => {
   const items = signal<string[]>(["x"]);
-  const el = h("x-rich", { items: () => items.value } as any);
-  assert.deepEqual((el as any).items, ["x"], "setAttr: 配列はプロパティに入る");
-  assert.equal(el.hasAttribute("items"), false, "setAttr: リッチな値は属性に書かない");
+  const el = h("x-rich", { ".items": () => items.value } as any);
+  assert.deepEqual((el as any).items, ["x"], "prop: 配列はプロパティに入る");
+  assert.equal(el.hasAttribute("items"), false, "prop: `.foo` は属性に書かない");
   items.value = ["x", "y"];
-  assert.deepEqual((el as any).items, ["x", "y"], "setAttr: reactive にプロパティ更新");
+  assert.deepEqual((el as any).items, ["x", "y"], "prop: reactive にプロパティ更新");
 });
-test("setAttr: value はプロパティを更新する（ユーザー入力後も反映）", () => {
+test("prop: `.value` はプロパティを更新する（ユーザー入力後も反映）", () => {
   const text = signal("first");
-  const el = h("input", { value: () => text.value }) as HTMLInputElement;
-  assert.equal(el.value, "first", "setAttr: value 初期値");
+  const el = h("input", { ".value": () => text.value }) as HTMLInputElement;
+  assert.equal(el.value, "first", "prop: .value 初期値");
   el.value = "user typed"; // ユーザー入力で属性とプロパティが乖離した状態
   text.value = "second";
-  assert.equal(el.value, "second", "setAttr: 乖離後も signal の変更が画面に反映される");
-  text.value = null as any;
-  assert.equal(el.value, "", "setAttr: value の null は空文字");
+  assert.equal(el.value, "second", "prop: 乖離後も signal の変更が画面に反映される");
 });
-test("setAttr: checked はプロパティ false で外れる", () => {
+test("attr: 接頭辞なしの value は属性のまま（初期値だけ・入力後は乖離）", () => {
+  const el = h("input", { value: "first" }) as HTMLInputElement;
+  assert.equal(el.getAttribute("value"), "first", "attr: value は属性に書かれる");
+  el.value = "user typed"; // ユーザー入力でプロパティが乖離
+  assert.equal(el.getAttribute("value"), "first", "attr: 属性は初期値のまま");
+});
+test("prop: `.checked` はプロパティ false で外れる", () => {
   const on = signal(true);
-  const el = h("input", { type: "checkbox", checked: () => on.value }) as HTMLInputElement;
-  assert.equal(el.checked, true, "setAttr: checked 初期値");
+  const el = h("input", { type: "checkbox", ".checked": () => on.value }) as HTMLInputElement;
+  assert.equal(el.checked, true, "prop: .checked 初期値");
   on.value = false;
-  assert.equal(el.checked, false, "setAttr: checked false でプロパティが外れる");
+  assert.equal(el.checked, false, "prop: .checked false でプロパティが外れる");
 });
 test("setAttr: aria-*/data-* も真偽値は全キー共通（false=削除で付け外しできる）", () => {
   // 真偽値の意味は他の属性と同じ: true=空文字（present）/ false=削除（absent）。
