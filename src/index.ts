@@ -16,7 +16,9 @@ export {
   memo,
   onCleanup,
   type Signal,
+  type SignalOptions,
   signal,
+  untrack,
 } from "./reactive.js";
 export { Show } from "./show.js";
 export { type Store, store } from "./store.js";
