@@ -240,14 +240,6 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 
 ## テスト・インフラ
 
-### 24. テストが自前ハーネス [対応済み]
-
-~~`check()` を並べた手書きスクリプト。フィルタ実行・並列化・diff 表示がない。~~
-
-依存を増やさず `node:test` + `node:assert/strict` に移行済み（Node 18+ 標準）。
-各テストは `test(...)` ブロックになり、`node --test dist/test/test-*.js` で
-個別実行・`--test-name-pattern` でのフィルタ・TAP 出力が使える。
-
 ### 25. lint / format が未設定 [未実装]
 
 **対応案**: 単一ツールで済む Biome（`biome check`）を devDependencies に足し、
@@ -285,4 +277,4 @@ README のコード片だけで、動かして試せるものがない。
 | 中 | #16 For の同位置スキップ | 数行で大半の無駄が消える |
 | 中 | #3 untrack / #4 equals / #27 sideEffects | 小さく足せて効果が確実 |
 | 低 | #9 SVG / #21 shadow DOM / #22 prop | 必要になったときに |
-| 低 | #24〜#26, #28 インフラ整備 | 機能とは独立にいつでも |
+| 低 | #25, #26, #28 インフラ整備 | 機能とは独立にいつでも |
