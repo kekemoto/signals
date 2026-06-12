@@ -52,10 +52,10 @@ export function Show(
         dispose = d;
         node = make();
       });
-      if (node) {
-        parent.insertBefore(node, end);
-        current = { node, dispose };
-      }
+      if (node) parent.insertBefore(node, end);
+      // node の有無にかかわらず dispose は必ず保持する。
+      // node が null でも render 内で張った effect を次の切り替えで畳めるようにするため。
+      current = { node, dispose };
     }
   });
 
