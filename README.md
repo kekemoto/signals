@@ -254,6 +254,13 @@ document.body.append(el);
 - 子の関数穴は `Node` / 配列も返せる。素の `.map` でリスト、三項演算子で条件分岐が書ける。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
 
+> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: 設定する値（関数・シグナルなら
+> その評価結果）が**オブジェクト・配列**なら、属性ではなく DOM **プロパティ**に代入される
+> （`el.items = [...]` — 属性は文字列しか運べないため。Custom Element にリッチな値を渡す口）。
+> また **`value` / `checked` / `selected` / `disabled`** は属性だと「初期値」しか変わらないため、
+> 常にプロパティを更新する（ユーザーが input に入力した後でも signal の変更が画面に反映される）。
+> それ以外のキーは従来どおり属性になる。
+
 ```js
 const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);
 const ok = signal(false);
@@ -359,20 +366,39 @@ document.body.append(document.createElement("x-counter"));
 // または HTML に直接 <x-counter></x-counter>
 ```
 
-`setup` は文脈オブジェクト `ctx` を1つ受け取る。`ctx.host`（要素自身）と `ctx.attr`
-（属性を読むヘルパー）が入っているので、必要なものを分割代入で取り出して使う。
+`setup` は文脈オブジェクト `ctx` を1つ受け取る。`ctx.host`（要素自身）と `ctx.prop`
+（外部からの入力を読むヘルパー）が入っているので、必要なものを分割代入で取り出して使う。
 
-**属性 → signal**: `ctx.attr(name)` は、その属性を映す `signal` を返す
-（内部は `MutationObserver`、dispose 時に自動で外れる）。外から属性を書き換えると再描画される。
+**入力 → signal**: `ctx.prop(name, initial?)` は、外部からの入力を映す `signal` を返す。
+入力経路は2つあり、どちらも同じ signal に合流する:
+
+- **プロパティ代入** — host に accessor を張るので、`el.name = v` がそのまま signal に入る。
+  オブジェクト・配列などリッチな値もそのまま通る（`h` / `html` のリッチな値もこの経路で届く）。
+  upgrade 前（接続前）に代入されていた値も初期値として拾う。
+- **属性** — `MutationObserver` で観測し、変更を**文字列のまま** signal に流す
+  （属性削除は `null`）。静的 HTML の `name="..."` は初期値として読む。型変換はしないので、
+  数値などが欲しければ読む側で変換する。
+
+初期値の優先順は「upgrade 前のプロパティ > 静的 HTML の属性 > `initial`」。
+accessor / observer は dispose 時（切断確定）に自動で外れる。
 
 ```js
-defineElement("x-greet", ({ attr }) => {
-  const name = attr("name");
-  return html`<p>hello ${() => name.value ?? "?"}</p>`;
+defineElement("x-greet", ({ prop }) => {
+  const name = prop("name", "?");
+  return html`<p>hello ${name}</p>`;
 });
-// <x-greet name="Alice"></x-greet> → "hello Alice"
-// el.setAttribute("name", "Bob")    → "hello Bob"
+// <x-greet name="Alice"></x-greet>  → "hello Alice"
+// el.setAttribute("name", "Bob")    → "hello Bob"（属性経由）
+// el.name = "Carol"                 → "hello Carol"（プロパティ経由）
+
+defineElement("x-list", ({ prop }) => {
+  const items = prop("items", []); // リッチな値はプロパティ経由で届く
+  return html`<ul>${() => items.value.map((x) => html`<li>${x}</li>`)}</ul>`;
+});
+// h("x-list", { items: () => data.value }) / el.items = [...] で流し込む
 ```
+
+なお setter は signal に入れるだけで、**属性へは書き戻さない**（リフレクトしない）。
 
 **host（要素自身）**: `ctx.host` で登録した要素そのものに触れる。イベント発火や
 プロパティ操作など、属性以外の Web Component らしい操作の入り口。

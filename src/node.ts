@@ -39,8 +39,23 @@ export function toNode(child: unknown): Node {
   return document.createTextNode(String(child));
 }
 
-/** 属性を設定する。null / false は属性を外し、true は空文字（真偽属性）。 */
+// 属性を書いても「初期値」しか変わらないフォーム系のキー。
+// （input.value 等は、ユーザー入力後は属性とプロパティが乖離する）
+const FORM_PROPS = new Set(["value", "checked", "selected", "disabled"]);
+
+/**
+ * 属性を設定する。null / false は属性を外し、true は空文字（真偽属性）。
+ * ただし次の2つはプロパティ代入に切り替える（属性は文字列しか運べないため）:
+ * - リッチな値（オブジェクト・関数・配列）→ `el[key] = v`（Custom Element への入力口）
+ * - フォーム系の既知キー（value / checked / selected / disabled）→ 現在値を直接更新
+ */
 export function setAttr(el: Element, key: string, v: unknown): void {
-  if (v == null || v === false) el.removeAttribute(key);
+  if ((typeof v === "object" && v !== null) || typeof v === "function") {
+    (el as unknown as Record<string, unknown>)[key] = v;
+  } else if (FORM_PROPS.has(key) && key in el) {
+    // value だけは null/undefined を空文字に丸める（el.value = null は "null" 表示になるため）。
+    // 真偽系（checked 等）は IDL 側の ToBoolean 変換に任せる。
+    (el as unknown as Record<string, unknown>)[key] = key === "value" && v == null ? "" : v;
+  } else if (v == null || v === false) el.removeAttribute(key);
   else el.setAttribute(key, v === true ? "" : String(v));
 }
