@@ -52,6 +52,8 @@
     "build:global": "esbuild dist/src/index.js --bundle --format=iife --global-name=Signals --outfile=dist/signals.global.js --sourcemap && esbuild dist/src/index.js --bundle --format=iife --global-name=Signals --minify --outfile=dist/signals.global.min.js",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check src test",
+    "format": "biome check --write src test",
     "test": "npm run build && node --test dist/test/test-core.js dist/test/test-owner.js",
     "test:dom": "npm run build && node --test dist/test/test-dom.js",
     "prepublishOnly": "npm run clean && npm run build"
@@ -72,6 +74,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^25.9.2",
     "esbuild": "^0.28.0",

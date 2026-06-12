@@ -479,6 +479,16 @@ node --test dist/test/test-core.js            # 1ファイルだけ
 node --test --test-name-pattern="memo" dist/test/test-core.js  # 名前で絞り込み
 ```
 
+## Lint / Format
+
+リンタとフォーマッタは [Biome](https://biomejs.dev/) に一本化している（設定は `biome.json`）。
+`src/` と `test/` を対象に、整形チェックと lint をまとめて実行する。CI でも同じチェックが走る。
+
+```bash
+npm run lint    # 整形ずれ・lint 違反をチェック（書き換えなし）
+npm run format  # 整形と安全な lint 修正を適用（biome check --write）
+```
+
 ## ライセンス
 
 Apache-2.0
