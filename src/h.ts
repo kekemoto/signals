@@ -59,7 +59,7 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
 
   // 子はネストしていてもフラット化し、toNode で変換する（html と同じ挙動）。
   for (const child of (children as unknown[]).flat(Infinity) as Child[]) {
-    if (child == null || child === false) continue;
+    if (child == null || typeof child === "boolean") continue; // 真偽値はどちらも描かない
     el.append(toNode(child));
   }
   return el;

@@ -90,7 +90,6 @@ test("tags: camelCase → kebab-case 変換", () => {
   assert.ok(el.id === "c" && el.textContent === "x", "tags: kebab 要素にも props/子が効く");
   assert.equal(tags.div().tagName, "DIV", "tags: 単語1つはそのまま");
 });
-
 // === html (tagged template literal) ===
 test("html: 単一ルート要素と reactive 子", () => {
   const count = signal(0);
@@ -355,6 +354,46 @@ test("For: 描画・並べ替え・追加・削除", () => {
   items.value = items.value.filter((i) => i.id !== "a"); // 削除
   assert.ok(liByID("a") === null && ids() === "cbd", `For: 削除で該当行だけ消える ids=${ids()}`);
 });
+test("For: 同位置のノードは insertBefore しない", () => {
+  const { ul, li } = tags;
+  const items = signal([{ id: "a" }, { id: "b" }, { id: "c" }]);
+  const el = mount();
+  const list = ul(
+    For(
+      () => items.value,
+      (i) => i.id,
+      (item) => li({ "data-id": item.id }, item.id),
+    ),
+  );
+  el.append(list);
+
+  // insertBefore を数える（DocumentFragment 挿入後の並べ替えだけを観測したい）
+  let inserts = 0;
+  const orig = list.insertBefore.bind(list);
+  list.insertBefore = ((node: Node, ref: Node | null) => {
+    inserts++;
+    return orig(node, ref);
+  }) as typeof list.insertBefore;
+
+  const ids = () => [...el.querySelectorAll("li")].map((x) => x.getAttribute("data-id")).join("");
+
+  // 同じ配列を入れ替えるが順序は不変 → insertBefore はゼロ回
+  items.value = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  assert.equal(inserts, 0, "For: 順序不変なら insertBefore しない");
+  assert.equal(ids(), "abc", "For: 順序不変で並びも保たれる");
+
+  // 末尾追加 → 追加した1ノードだけ insertBefore
+  inserts = 0;
+  items.value = [...items.value, { id: "d" }];
+  assert.equal(inserts, 1, "For: 末尾追加は1回だけ insertBefore");
+  assert.equal(ids(), "abcd", "For: 末尾追加で並びが正しい");
+
+  // 並べ替え → 結果が正しい（移動回数は最小でなくてよい）
+  inserts = 0;
+  items.value = [items.value[3], items.value[0], items.value[1], items.value[2]]; // d,a,b,c
+  assert.equal(ids(), "dabc", "For: 並べ替えで順序が更新");
+  assert.ok(inserts > 0 && inserts < 4, `For: 全ノード移動はしない inserts=${inserts}`);
+});
 test("For: 重複キーで throw", () => {
   const { ul, li } = tags;
   const items = signal([{ id: "x" }, { id: "x" }]);
@@ -608,6 +647,36 @@ test("setAttr: checked はプロパティ false で外れる", () => {
   assert.equal(el.checked, true, "setAttr: checked 初期値");
   on.value = false;
   assert.equal(el.checked, false, "setAttr: checked false でプロパティが外れる");
+});
+test("setAttr: aria-*/data-* も真偽値は全キー共通（false=削除で付け外しできる）", () => {
+  // 真偽値の意味は他の属性と同じ: true=空文字（present）/ false=削除（absent）。
+  const on = signal(true);
+  const el = h("div", { "data-on": () => on.value });
+  assert.equal(el.getAttribute("data-on"), "", "setAttr: data-* の true は空文字");
+  on.value = false;
+  assert.equal(
+    el.hasAttribute("data-on"),
+    false,
+    "setAttr: data-* の false で外れる（付け外し可）",
+  );
+  on.value = true;
+  assert.equal(el.hasAttribute("data-on"), true, "setAttr: data-* を再び付けられる");
+});
+test('setAttr: "false" という文字列はそのまま属性に書ける（aria-hidden=false）', () => {
+  // "false" 自体を残したいときは真偽値ではなく文字列を渡す。
+  const el = h("div", { "aria-hidden": "false", "data-flag": "true" });
+  assert.equal(el.getAttribute("aria-hidden"), "false", 'setAttr: 文字列 "false" はそのまま');
+  assert.equal(el.getAttribute("data-flag"), "true", 'setAttr: 文字列 "true" はそのまま');
+});
+test("toNode: 子の true / false はどちらも非表示", () => {
+  const flag = signal<boolean>(true);
+  const el = h("span", "[", () => flag.value, "]");
+  assert.equal(el.textContent, "[]", "toNode: true の子は描かない（false と対称）");
+  flag.value = false;
+  assert.equal(el.textContent, "[]", "toNode: false の子も描かない");
+  // 静的な真偽値の子もスキップ（empty text すら足さない）
+  const el2 = h("span", "x", true, false);
+  assert.equal(el2.childNodes.length, 1, "h: 静的な真偽値の子は append しない");
 });
 test("defineElement: ctx.host で要素自身に触れる", () => {
   const { div } = tags;
