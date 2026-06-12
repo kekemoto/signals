@@ -471,20 +471,18 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   check("defineElement: 再接続後も描画される", el.querySelector("div")?.textContent === "r");
 }
 
-// === defineElement: dispose は自分が描画したノードだけ片付け、利用者の light DOM の子は残す ===
+// === defineElement: 接続時に light DOM の子は外され、slot で拾わなければ描画されない ===
 {
-  defineElement("x-slot", () => { const { div } = tags; return div({ class: "own" }, "own"); });
-  const el = document.createElement("x-slot");
-  const userChild = document.createElement("span");      // 利用者が host に直接書いた light DOM の子
-  userChild.className = "user";
-  el.append(userChild);
+  defineElement("x-clears", () => { const { div } = tags; return div({ class: "own" }, "own"); });
+  const el = document.createElement("x-clears");
+  el.innerHTML = `<span class="user">u</span>`;          // 利用者が書いた子（slot で拾わない）
   document.body.append(el);
-  check("defineElement: 描画ノードと利用者の子が共存", !!el.querySelector(".own") && !!el.querySelector(".user"));
+  check("defineElement: setup の出力は描画される", !!el.querySelector(".own"));
+  check("defineElement: 拾われない light DOM の子は描画されない", !el.querySelector(".user"));
 
   el.remove();
   await tick();                                          // 切断を確定させて dispose
-  check("defineElement: dispose で描画ノードだけ消える", !el.querySelector(".own"));
-  check("defineElement: dispose で利用者の子は残る", !!el.querySelector(".user"));
+  check("defineElement: dispose で描画ノードが消える", !el.querySelector(".own"));
 }
 
 // === defineElement: ctx.slot で light DOM の子を出力内へ投影 ===
@@ -517,17 +515,6 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
   check("slot: 一致しない slot は空", el.querySelector(".named")?.childNodes.length === 0);
   check("slot: 拾われない子は撤去される", !el.querySelector(".loose"));
-}
-
-// === defineElement: slot を使わなければ子はそのまま残る（#20 の保全）===
-{
-  const { div } = tags;
-  defineElement("x-no-slot", () => div({ class: "own" }, "own"));   // slot を使わない
-  const el = document.createElement("x-no-slot");
-  el.innerHTML = `<p class="kept">残る</p>`;
-  document.body.append(el);
-
-  check("slot: 未使用なら利用者の子は残る", el.querySelector(":scope > .kept")?.textContent === "残る");
 }
 
 // === For / Show: signal を直接渡す（() => sig.value のラップ不要）===

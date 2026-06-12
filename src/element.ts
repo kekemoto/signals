@@ -37,8 +37,8 @@ export interface SetupContext {
    * - `slot()` … `slot` 属性のない子（デフォルトスロット）。
    * - `slot("title")` … `slot="title"` を付けた子。
    * 戻り値（DocumentFragment）を setup の出力の好きな位置に置けば、そこへ子が差し込まれる。
-   * 取り出した子はそのノードごと移動する（複製ではない）。slot を1回でも使うと、どの slot でも
-   * 拾わなかった子は撤去され描画されない（`<slot>` と同じ）。slot を一切使わなければ子はそのまま残る。
+   * 接続時の light DOM の子は一旦 host から外され、slot() が拾ったものだけが描画される。
+   * 取り出した子はそのノードごと移動する（複製ではない）。どの slot でも拾わなかった子は描画されない。
    */
   slot(name?: string): DocumentFragment;
 }
@@ -50,28 +50,23 @@ export type Setup = (
 
 // host に紐づく文脈（host + ヘルパー）を作る。
 // MutationObserver は最初に attr() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
-// 戻り値の dropUnclaimed は「slot を1回でも使ったとき、どの slot でも拾われなかった
-// light DOM の子を撤去する」関数。setup 後（マウント後）に1回呼ぶ。
-function makeContext(host: HTMLElement): {
-  ctx: SetupContext;
-  dropUnclaimed: () => void;
-} {
+function makeContext(host: HTMLElement): SetupContext {
   const signals = new Map<string, Signal<string | null>>();
   let observer: MutationObserver | null = null;
-  // setup が host を書き換える前の、接続時点の light DOM の子を控える（slot 用）。
+  // 接続時点の light DOM の子を host から外して退避する（slot 入力）。
+  // slot() が拾ったものだけが setup の出力経由で描画され、拾われなかったものは戻されない＝描画されない。
   const lightChildren = [...host.childNodes];
-  let usedSlot = false;
+  host.replaceChildren();
 
-  const ctx: SetupContext = {
+  return {
     host,
     slot(name?: string): DocumentFragment {
-      usedSlot = true;
       const frag = document.createDocumentFragment();
       for (const n of lightChildren) {
         // Element だけが slot 属性を持てる。テキスト/コメントは常にデフォルトスロット行き。
         const slotName = (n as Partial<Element>).getAttribute?.("slot") ?? null;
         const match = name != null ? slotName === name : slotName == null;
-        if (match) frag.append(n);              // host から frag へノードごと移動
+        if (match) frag.append(n);              // 退避済みの子を frag へ移す
       }
       return frag;
     },
@@ -95,17 +90,6 @@ function makeContext(host: HTMLElement): {
       return sig;
     },
   };
-
-  // slot を使った場合のみ、拾われずに host 直下へ残った子（消費済みは別の親へ移っている）を撤去する。
-  // slot を一切使わないコンポーネントでは何もせず、利用者の light DOM の子をそのまま残す。
-  const dropUnclaimed = () => {
-    if (!usedSlot) return;
-    for (const n of lightChildren) {
-      if (n.parentNode === host) n.remove();
-    }
-  };
-
-  return { ctx, dropUnclaimed };
 }
 
 /**
@@ -128,8 +112,7 @@ export function defineElement(
       if (this.#dispose) return;            // 既にマウント済み（移動による再接続もここで弾く）
       createRoot((dispose) => {
         this.#dispose = dispose;
-        const { ctx, dropUnclaimed } = makeContext(this);
-        const node = setup(ctx);
+        const node = setup(makeContext(this));
         if (node != null) {
           // DocumentFragment（nodeType 11）は append で中身が host へ移り自身は空になるので、
           // append 前に実際にマウントされる最上位ノードを控えておく。
@@ -138,7 +121,6 @@ export function defineElement(
             : [node as ChildNode];
           this.append(node);
         }
-        dropUnclaimed();                      // slot を使ったなら拾われなかった子を撤去する
       });
     }
 
