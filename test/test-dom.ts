@@ -722,6 +722,23 @@ test("prop: 静的なリッチ値も prop() で渡せる", () => {
   const el = h("x-rich", { items: prop(arr) } as any);
   assert.equal((el as any).items, arr, "prop: 静的な配列がそのままプロパティに入る");
 });
+test("prop: prop() はシグナル直渡しに対応する（h / html）", () => {
+  const items = signal<string[]>(["x"]);
+  const elH = h("x-rich", { items: prop(items) } as any); // h: prop(signal)
+  const elT = html`<x-rich items=${prop(items)}></x-rich>` as HTMLElement; // html: items=${prop(signal)}
+  assert.deepEqual((elH as any).items, ["x"], "prop: h で prop(signal) 初期値");
+  assert.deepEqual((elT as any).items, ["x"], "prop: html で prop(signal) 初期値");
+  items.value = ["x", "y"];
+  assert.deepEqual((elH as any).items, ["x", "y"], "prop: h で prop(signal) 更新");
+  assert.deepEqual((elT as any).items, ["x", "y"], "prop: html で prop(signal) 更新");
+});
+test("prop: `.value` はシグナル直渡しに対応する（() => で包まなくてよい）", () => {
+  const text = signal("first");
+  const el = html`<input .value=${text}>` as HTMLInputElement; // bare signal
+  assert.equal(el.value, "first", "prop: .value にシグナル直渡し 初期値");
+  text.value = "second";
+  assert.equal(el.value, "second", "prop: .value にシグナル直渡し 更新");
+});
 test("prop: h では `.foo` キーも prop() と同義に動く", () => {
   const on = signal(true);
   const el = h("input", { type: "checkbox", ".checked": () => on.value }) as HTMLInputElement;
