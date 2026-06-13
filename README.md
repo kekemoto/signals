@@ -26,7 +26,7 @@ npm install @kekemoto/signals
   const count = signal(0);
   document.body.append(
     div(
-      span(() => count.value),
+      span(count),
       button({ onClick: () => count.value++ }, "+1"),
     ),
   );
@@ -203,22 +203,30 @@ stop(); // 配下の effect をすべて解放
 ### `h(tag, props?, ...children)`
 
 最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
-キー名に `.` を付けると DOM プロパティ代入（`.items` → `el.items = v`）、`onXxx` はイベント。
-子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、第2引数が
-プレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
+値を `prop()` で包むと属性ではなく **DOM プロパティ**へ代入（`{ value: prop(count) }` →
+`el.value = count.value`、オブジェクト・配列などリッチな値や Custom Element の口に使う）、
+`onXxx` はイベント。子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、
+第2引数がプレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
 
 ```js
-import { h } from "@kekemoto/signals/h";
+import { h, prop } from "@kekemoto/signals/h";
 import { signal } from "@kekemoto/signals";
 
 const count = signal(0);
 
 const el = h("div", { class: "box" },
-  h("span", () => `count: ${count.value}`),   // props 省略
+  h("span", count),                            // シグナル直渡し（props 省略）
   h("button", { onClick: () => count.value++ }, "+1"),
 );
 
 document.body.append(el);
+```
+
+`value` / `checked` など、属性では「初期値」しか変えられないフォーム系は `prop()` で渡す。
+
+```js
+const text = signal("");
+const input = h("input", { value: prop(text) });   // 入力後も signal の変更が反映される
 ```
 
 関数の子は文字列・数値だけでなく **`Node` / 配列も返せる**（`` html`...` `` と同じ範囲再描画）。
@@ -244,7 +252,7 @@ const { div, button, span, myCard } = tags;
 const count = signal(0);
 
 const el = div(
-  span(() => count.value),
+  span(count),                                  // シグナル直渡し
   button({ onClick: () => count.value++ }, "+1"),
   myCard({ title: "hi" }),                      // → <my-card title="hi">
 );
@@ -294,23 +302,22 @@ document.body.append(el);
 > html`<a href=${url}></a>`;
 >
 > // DOM プロパティ。オブジェクト・配列などリッチな値もそのまま渡せる（Custom Element の口）
-> h("x-list", { items: prop(() => items.value) });    // el.items = [...]
-> html`<x-list .items=${() => items.value}></x-list>`; // 同義。`items=${prop(...)}` とも書ける
+> h("x-list", { items: prop(items) });            // el.items = items.value（シグナル直渡し）
+> html`<x-list .items=${items}></x-list>`;         // 同義。`items=${prop(items)}` とも書ける
 > ```
 >
 > フォーム要素の **`value` / `checked` / `selected`** は、属性だと「初期値」しか変えられず
 > ユーザー入力後は属性とプロパティが乖離する。signal の変更を常に画面へ反映したいなら
-> プロパティとして渡す:
+> プロパティとして渡す（穴と同じく**シグナル直渡し**でよい）:
 >
 > ```js
-> html`<input .value=${() => text.value}>`;        // 入力後も signal の変更が反映される
-> h("input", { value: prop(() => text.value) });   // h なら prop() で
-> html`<input value=${"既定値"}>`;                 // 初期値だけ（入力後は更新しても効かない）
+> html`<input .value=${text}>`;            // signal 直渡し。入力後も signal の変更が反映される
+> h("input", { value: prop(text) });       // h なら prop() で（同じく直渡し）
+> html`<input value=${"既定値"}>`;         // 初期値だけ（入力後は更新しても効かない）
 > ```
 >
 > プロパティは値を丸めず素のまま代入する。`null` を空にしたいなら
-> `prop(() => text.value ?? "")` のように呼び出し側で処理する。
-> （`h` のキーに直接 `.foo` を書いても `prop()` と同義に動くが、クォートが要るので `prop()` 推奨。）
+> `prop(() => text.value ?? "")` のように呼び出し側で処理する（ここは派生なので関数で包む）。
 
 ```js
 const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);
@@ -454,7 +461,7 @@ defineElement("x-list", ({ prop }) => {
   const items = prop("items", []); // リッチな値はプロパティ経由で届く
   return html`<ul>${() => items.value.map((x) => html`<li>${x}</li>`)}</ul>`;
 });
-// h("x-list", { items: () => data.value }) / el.items = [...] で流し込む
+// h("x-list", { items: prop(data) }) / html`<x-list .items=${data}>` / el.items = [...] で流し込む
 ```
 
 なお setter は signal に入れるだけで、**属性へは書き戻さない**（リフレクトしない）。
