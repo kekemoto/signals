@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `store` / `onCleanup` / `untrack` / `createRoot` / `isSignal`
+- **コア** — `signal` / `effect` / `batch` / `cached` / `store` / `onCleanup` / `untrack` / `createRoot` / `isSignal`
 - **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
 
 ## インストール
@@ -116,22 +116,33 @@ effect(() => console.log(hypotenuse())); // → 5
 a.value = 6; // → 10
 ```
 
-#### キャッシュ・共有・value-cutoff が要るとき
+### `cached(fn)` — キャッシュ・共有・value-cutoff が要るとき
 
-重い派生を複数箇所で読むので**計算を共有したい**、入力は変わるが結果が同じなら**下流を止めたい**（value-cutoff）——そういう場面だけ、`signal` + `effect` で「キャッシュする派生セル」を手で組む。
+重い派生を複数箇所で読むので**計算を共有したい**、入力は変わるが結果が同じなら**下流を止めたい**（value-cutoff）——そういうホットパスだけ、派生関数を `cached` で包む。
 
 ```js
+import { signal, effect, cached } from "@kekemoto/signals";
+
 const w = signal(2), h = signal(3);
 
-const area = signal(w.peek() * h.peek());
-effect(() => (area.value = w.value * h.value)); // setter の Object.is が cutoff を担う
+// const area = () => w.value * h.value;       // 素の派生（出発点）
+const area = cached(() => w.value * h.value);  // ↑ をホット化（呼び出し側 area() は無変更）
 
-// 下流は area.value を読む。計算は入力変化ごとに1回（複数読みでも共有）、
-// 面積が同じなら area への代入が無視されて下流は走らない（cutoff）。
-effect(() => console.log(area.value));
+effect(() => console.log(area())); // → 6
+effect(() => console.log(area())); // 再計算なし・キャッシュを共有
+w.value = 6;                       // → 両 effect に 18（=6*3）が流れる。計算は1回だけ
 ```
 
-> 軽い派生は関数で十分。キャッシュが要るのはホットパスだけなので、必要になった場所でこの数行を書く方が、専用 API を常設するより**最小**という方針。
+- **計算の共有** — 何箇所から読んでも、入力変化ごとに1回しか計算しない
+- **value-cutoff** — 結果が前と同じなら（内部 signal の `Object.is` で）下流は走らない
+- **代償** — eager（読まれなくても入力変化で計算する）／生入力と同じ `effect` で読むと二重実行
+
+`cached` の戻り値は**ただの `() => T` 関数**。`.value` も `.dispose` も生やさないので、素の派生関数と完全に入れ替え可能（テンプレートの穴にもそのまま渡せる）。
+
+- **追跡せずに読みたい**（`peek` 相当）→ `untrack(area)`
+- **明示的に止めたい** → 内部 `effect` は所有ツリーに乗るので、`effect` の中で作れば親と一緒に畳まれる。トップレベルなら `createRoot` で囲んで返り値の `dispose` を握る。
+
+> 中身は `signal`（結果置き場）+ `effect`（入力が変われば計算して書き込む）の薄い糖衣。軽い派生は関数のままで十分で、`cached` はホットパスでだけ使う。
 
 ### `store(obj)`
 

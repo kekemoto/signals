@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { batch, createRoot, effect, onCleanup, signal } from "../src/reactive.js";
+import { batch, cached, createRoot, effect, onCleanup, signal } from "../src/reactive.js";
 
 test("onCleanup: 再実行直前に前回分が走る", () => {
   const s = signal(0);
@@ -80,6 +80,43 @@ test("owner: 親再実行で前回の子が畳まれる", () => {
   assert.equal(childRuns, 2, "親再実行で新しい子");
   inner.value = 1; // 子が反応。リークしていれば古い子も走り +2 になる
   assert.equal(childRuns, 3, "生きている子は1つだけ（リークなし）");
+});
+
+test("cached: effect 内で作った cached は親と一緒に畳まれる", () => {
+  const a = signal(1);
+  let calc = 0;
+  const disposeParent = effect(() => {
+    const m = cached(() => {
+      calc++;
+      return a.value * 2;
+    });
+    m();
+  });
+  assert.equal(calc, 1, "cached 初期計算");
+  disposeParent(); // 親 effect ごと畳む → cached の内部 effect も停止
+  a.value = 5; // 停止しているので再計算されないはず
+  assert.equal(calc, 1, "親 dispose で cached も停止");
+});
+
+test("cached: トップレベルは createRoot で止められる", () => {
+  const a = signal(1);
+  let calc = 0;
+  let m!: () => number;
+  const disposeRoot = createRoot((dispose) => {
+    m = cached(() => {
+      calc++;
+      return a.value * 2;
+    });
+    return dispose;
+  });
+  assert.equal(calc, 1, "生成時に1回計算");
+  a.value = 2;
+  assert.equal(calc, 2, "入力変化で再計算（eager）");
+  assert.equal(m(), 4, "最新値");
+  disposeRoot();
+  a.value = 3;
+  assert.equal(calc, 2, "createRoot の dispose 後は止まる");
+  assert.equal(m(), 4, "停止後は古い値のまま");
 });
 
 test("onCleanup と batch の併用", () => {

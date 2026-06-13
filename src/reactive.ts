@@ -5,6 +5,7 @@
 //   effect    : 依存が変わると再実行される副作用。dispose 関数を返す
 //   batch     : 複数の変更を1回の再実行にまとめる
 //   onCleanup : effect の後始末を登録する。再実行直前・dispose時に呼ばれる
+//   cached    : 派生関数を計算共有＋value-cutoff 付きにする糖衣（読み口は () のまま）
 //
 // 派生値は「ただの関数」で書く:
 //   const fullName = () => first.value + " " + last.value;
@@ -12,10 +13,9 @@
 // 関数は中間ノードを作らず、読まれた瞬間に最新値を計算するので、メモ化用の専用ノードは
 // 持たない（lazy・グリッチなしが素のまま得られる）。重い派生を複数箇所で読むので計算を
 // 共有したい・入力は変わるが結果が同じなら下流を止めたい（value-cutoff）といった場面だけ、
-// signal + effect で「キャッシュする派生セル」を手で組む:
-//   const area = signal(w.peek() * h.peek());
-//   effect(() => (area.value = w.value * h.value)); // setter の Object.is で cutoff
-//   // 下流は area.value を読む（計算は入力変化ごとに1回、複数読みでも共有）
+// 派生関数を cached() で包む（中身は signal + effect の薄い糖衣で、読み口は () のまま）:
+//   const area = cached(() => w.value * h.value);
+//   // area() を読む（計算は入力変化ごとに1回・複数読みでも共有・結果同値なら下流据え置き）
 //
 // 所有ツリー（ownership）:
 //   effect を作ると、いま実行中の effect の「子」として自動登録される。
@@ -278,4 +278,32 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
     currentOwner = prevOwner;
     activeComputation = prevObserver;
   }
+}
+
+// --- cached -----------------------------------------------------------------
+// 重い派生を「1回だけ計算して共有・入力が変わるまでキャッシュ」したいときに包む糖衣。
+// 中身は signal（結果置き場）+ effect（依存が変われば計算して書き込む）の合成にすぎず、
+// 読み口は素の派生関数とまったく同じ () => T。だから「まず関数で書き、ホットになったら
+// 包む」が最小差分でできる（呼び出し側 foo() は変えなくてよい）:
+//   const area = () => w.value * h.value;          // 素の派生
+//   const area = cached(() => w.value * h.value);  // ホット化（area() は無変更）
+//   - 計算の共有 : 何箇所から読んでも、入力変化ごとに1回しか計算しない
+//   - value-cutoff: 結果が前と同じなら（中間 signal の Object.is で）下流は走らない
+//   - 代償        : eager（未使用でも計算する）/ 生入力と同じ effect で読むと二重実行
+// 解放は effect と同じ所有ツリー任せ: effect の中で作れば親と一緒に畳まれ、トップレベルで
+// 明示的に止めたいときは createRoot で囲んで返り値の dispose を握る（read口にプロパティは
+// 生やさない）。追跡せずに今の値だけ読みたい（peek 相当）ときは untrack(area) を使う。
+export function cached<T>(fn: () => T): () => T {
+  // effect は生成時に同期実行される（下の effect(...) が返る前に1度走る）。そこで初回は
+  // 計算結果でそのまま signal を作り、2回目以降だけ書き込む。こうすると cell は常に T で
+  // 持てる（undefined を T に偽る as キャストが要らない）し、初期値 undefined → 初回結果
+  // の余計な1段差（spurious cutoff）も生じない。
+  let cell: Signal<T> | undefined;
+  effect(() => {
+    const next = fn(); // 依存が変わるたび計算
+    if (cell)
+      cell.value = next; // 2回目以降: 書き込み（Object.is で下流を間引く）
+    else cell = signal(next); // 初回: 結果で signal を作る
+  });
+  return () => cell!.value; // 読み口（素の派生関数と同じく area() で読む）
 }

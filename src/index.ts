@@ -9,6 +9,7 @@ export { type Child, h, type Props, type PropValue } from "./h.js";
 export { html } from "./html.js";
 export {
   batch,
+  cached,
   createRoot,
   effect,
   isSignal,
