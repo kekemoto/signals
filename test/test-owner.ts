@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { batch, createRoot, effect, memo, onCleanup, signal } from "../src/reactive.js";
+import { batch, createRoot, effect, onCleanup, signal } from "../src/reactive.js";
 
 test("onCleanup: 再実行直前に前回分が走る", () => {
   const s = signal(0);
@@ -80,41 +80,6 @@ test("owner: 親再実行で前回の子が畳まれる", () => {
   assert.equal(childRuns, 2, "親再実行で新しい子");
   inner.value = 1; // 子が反応。リークしていれば古い子も走り +2 になる
   assert.equal(childRuns, 3, "生きている子は1つだけ（リークなし）");
-});
-
-test("memo: effect 内で作った memo は親と一緒に畳まれる", () => {
-  const a = signal(1);
-  let calc = 0;
-  let read;
-  const disposeParent = effect(() => {
-    const m = memo(() => {
-      calc++;
-      return a.value * 2;
-    });
-    read = m();
-  });
-  assert.ok(calc === 1 && read === 2, "memo 初期計算");
-  disposeParent(); // 親 effect ごと畳む → memo の内部 effect も停止
-  a.value = 5; // 停止しているので再計算されないはず
-  assert.equal(calc, 1, "親 dispose で memo も停止");
-});
-
-test("memo: トップレベル memo は read.dispose で止められる", () => {
-  const a = signal(1);
-  let calc = 0;
-  const m = memo(() => {
-    calc++;
-    return a.value;
-  });
-  assert.equal(m(), 1, "初回読みで計算");
-  assert.equal(calc, 1, "初回計算は1回");
-  a.value = 2;
-  assert.equal(m(), 2, "入力変化後の読みで再計算（値）");
-  assert.equal(calc, 2, "入力変化後の読みで再計算（回数）");
-  m.dispose();
-  a.value = 3;
-  assert.equal(m(), 2, "dispose 後は再計算されず古い値のまま");
-  assert.equal(calc, 2, "read.dispose 後は止まる");
 });
 
 test("onCleanup と batch の併用", () => {

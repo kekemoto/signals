@@ -12,8 +12,6 @@ export {
   createRoot,
   effect,
   isSignal,
-  type Memo,
-  memo,
   onCleanup,
   type Signal,
   signal,
