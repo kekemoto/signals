@@ -119,6 +119,32 @@ test("cached: トップレベルは createRoot で止められる", () => {
   assert.equal(m(), 4, "停止後は古い値のまま");
 });
 
+test("cached: オーナーがないと dev 警告（createRoot / effect 内では出ない）", () => {
+  // dev ビルドでだけ警告する。テストは NODE_ENV 未設定 = dev なので発火するが、
+  // production で実行された場合も落ちないよう期待値を dev フラグで揃える。
+  const dev = typeof process === "undefined" || process.env.NODE_ENV !== "production";
+  const a = signal(1);
+  const orig = console.warn;
+  let warns = 0;
+  console.warn = () => {
+    warns++;
+  };
+  try {
+    cached(() => a.value); // オーナーなし（孤児）→ 警告
+    assert.equal(warns, dev ? 1 : 0, "オーナーなしで警告");
+    createRoot((dispose) => {
+      cached(() => a.value); // createRoot がオーナー → 警告なし
+      dispose();
+    });
+    effect(() => {
+      cached(() => a.value); // 親 effect がオーナー → 警告なし
+    })();
+    assert.equal(warns, dev ? 1 : 0, "オーナーがあれば追加の警告は出ない");
+  } finally {
+    console.warn = orig;
+  }
+});
+
 test("onCleanup と batch の併用", () => {
   const a = signal(0),
     b = signal(0);

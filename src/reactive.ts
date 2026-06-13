@@ -69,6 +69,12 @@ let flushing = false; // いま flush 中か（再入を1つに束ねる）
 const pendingEffects = new Set<Computation>(); // バッチ終了時にまとめて走らせる effect
 const FLUSH_LIMIT = 1000; // 1回の flush で許す「世代」数（暴走検出の閾値）
 
+// dev ビルドでだけ出す注意喚起（cached の孤児検出など）を有効にするか。
+// バンドラは process.env.NODE_ENV を置換するので prod では false に畳まれ警告は消える。
+// 素のブラウザ global ビルドでは process 不在 → false（＝黙る）。
+const DEV =
+  typeof process !== "undefined" && process.env != null && process.env.NODE_ENV !== "production";
+
 // 溜まった effect を実行する。空になるまで「世代」単位で繰り返す（while ループ）。
 //
 // 再入を1本に束ねる: effect の実行中に signal が書かれると notify→batch→flush が
@@ -293,7 +299,18 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
 // 解放は effect と同じ所有ツリー任せ: effect の中で作れば親と一緒に畳まれ、トップレベルで
 // 明示的に止めたいときは createRoot で囲んで返り値の dispose を握る（read口にプロパティは
 // 生やさない）。追跡せずに今の値だけ読みたい（peek 相当）ときは untrack(area) を使う。
+//
+// cached は dispose ハンドルを返さないので、オーナー（囲む effect / createRoot）が無い場所で
+// 作ると内部 effect が孤児になり、回収する手段がないまま入力 signal にぶら下がり続ける
+// （＝リーク）。dev ビルドではこれを console.warn で知らせる（prod では DEV が false に畳まれ
+// 無音）。アプリ寿命の派生など意図的に永続させたいときは createRoot で囲めば警告は消える。
 export function cached<T>(fn: () => T): () => T {
+  if (DEV && currentOwner === null) {
+    console.warn(
+      "cached: オーナーがありません。内部 effect が孤児になり自動解放されません" +
+        "（入力 signal にぶら下がり続けてリークします）。effect の中で作るか createRoot で囲んでください。",
+    );
+  }
   // effect は生成時に同期実行される（下の effect(...) が返る前に1度走る）。そこで初回は
   // 計算結果でそのまま signal を作り、2回目以降だけ書き込む。こうすると cell は常に T で
   // 持てる（undefined を T に偽る as キャストが要らない）し、初期値 undefined → 初回結果
