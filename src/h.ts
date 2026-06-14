@@ -44,6 +44,13 @@ export function isProps(x: unknown): x is Props {
   );
 }
 
+// 既知の HTML タグは要素型を厳密に返す（h("input", ...) は HTMLInputElement）。
+// 未知のタグ名（Custom Element など）は string フォールバックで HTMLElement になる。
+export function h<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  ...args: [Props, ...Child[]] | Child[]
+): HTMLElementTagNameMap[K];
+export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElement;
 export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElement {
   const el = document.createElement(tag);
 
