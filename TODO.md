@@ -122,7 +122,7 @@ CI はテストのみで、リリースは手元の `npm publish` 頼み。
 **対応案**: `v*` タグ push をトリガに `npm publish --provenance` する workflow を追加する。
 あわせて CHANGELOG.md（手書きで十分）を置く。
 
-### 28. examples / デモページがない [未実装]
+### 28. examples / デモページがない [検討]
 
 README のコード片だけで、動かして試せるものがない。
 
