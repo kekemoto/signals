@@ -165,9 +165,65 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
 - **Custom Element のハイドレーションは jsdom だと弱い**（アップグレードのタイミング / light DOM
   投影が実ブラウザと差が出る）。`defineElement` 周りは **Playwright 等の実ブラウザ**に逃がす。
 
+## h / tags のハイドレーション（未決定・両論併記）
+
+第1弾スコープ外だが、将来どう扱うかは**未決定**。`tags` は `h` の完全な糖衣（`tags.ts:18`）なので、
+判断は `h` についてのみ行えば `tags` は自動で従う。**`h` / `tags` 自体を廃止して `html` に一本化する
+案も候補**に残っている（その場合 SSR スコープは `html` だけになり、本節の議論は不要になる）。
+
+### html 設計との関係：何が共有でき、何ができないか
+
+- **クライアント（adopt）は素直で小さい。**
+  - `bindProp`（`node.ts:155`）は**既存ノードに対して冪等**。サーバが作った既存要素を渡せば、
+    初回 effect が同じ値を入れ直すだけ／イベントは addEventListener するだけで配線が完了する。
+    → 属性・イベントの adopt は**新コードほぼゼロ**。
+  - 子の reactive 範囲（`toNode` / `For` / `Show`）は html と完全共用。html 用に adopt 化すれば
+    そのまま乗る。
+  - `h` 固有で要るのは実質 `document.createElement` / `append`（`h.ts:48`,`h.ts:67`）を
+    **カーソル方式（既存DOMから次のノードを取る、Solid の `getNextElement` 相当）に差し替える1点**。
+    ambient な hydration カーソルを `h` の生成境界に通す（owner / module レベルの context）。
+  - `h` はクライアントで**再実行**されるので「どの属性が reactive か」等を server から教わる必要が
+    無い。必要なマーカーは**子範囲コメント（既出の `<!--hole-->` / `<!--for-->` 等）だけ**で、
+    html よりマーカーが少なくて済む。
+- **サーバ（emit）は html の descriptors 起点エミッタを再利用できない。** `h` には解釈する静的
+  テンプレが無く descriptors が存在しないため。emit には次の2案がある（クライアント側はどちらでも同一）。
+
+### 軸A：状態保存をどこまでやるか（要決定）
+
+- **(a) DOM 状態まで保つ（真のノード保存）**：focus・入力値・スクロールも維持。上記カーソル方式の
+  adopt が必要（実装中規模）。一貫性は最も高い。
+- **(b) signal 値だけ保てばよい**：signal はクロージャに live していてクライアントで同一に再生成
+  されるので、DOM は connect 時に**作り直してよい（render-on-connect）**。`h` の adopt カーソルが
+  不要になり実装が激減する。代償は初期表示の一瞬の再構築（focus / 入力値 / スクロールは飛ぶ）。
+
+→ **未決定。** (b) で足りるなら `h` のハイドレーションはほぼ「サーバで文字列を出す」だけに縮む。
+
+### 軸B：サーバ emit の実装（軸Aで (a) を採る場合に関係）
+
+- **案1：string モードの `h`（DOM シム無し）**：`createElement`+append を「文字列を再帰的に
+  組み立てる」版に。属性値計算・エスケープは `node.ts` ヘルパー再利用。DOM シム不要で html の
+  「シムを避ける」判断と一貫。emit 自体は枯れた手法で小さいが、`h` に create/string の経路が増える。
+- **案2：サーバで DOM シム（linkedom 等）に create モードの `h` をそのまま流す**：`outerHTML` を
+  取る。emit 用の新コードがほぼゼロで**新規コード最小**。代償はサーバに DOM エミュレータを積む・
+  effect がサーバで走る（使い捨て root で即 dispose すれば抑制可）・Custom Element がシムだと弱い。
+
+### 採らない案（`h` でも小さくならない理由）
+
+- **morph 系（idiomorph 等で実木をサーバ木へ差分適用）**：effect / listener が捨てられる新ノード側に
+  付き fine-grained 配線が保てない。再ポイントが要りぐちゃつく。小さくならない。
+- **コンパイラ（Solid 式）**：runtime 最小だがビルドレスを捨てる。本プロジェクトの思想と逆。
+
+### 暫定の方針
+
+- クライアント／adopt は確定路線（カーソル1点＋共有 adopt）。html の土台が出来てからの差分で済む。
+- サーバ／emit は **案1（string モード）推奨**、新規コード最小を最優先するなら案2（シム）も可。
+- ただし軸A（状態保存の深さ）と「`h`/`tags` 廃止」は**未決定**。`html` 実装を先行させ、その知見が
+  出てから `h` の要否・深さを決める。
+
 ## 非対象 / 留意
 
-- `h` / `tags`（hyperscript）の SSR は第1弾スコープ外（`createElement` 直行のため別実装が要る）。
+- `h` / `tags`（hyperscript）の SSR は第1弾スコープ外。扱いは上節「h / tags のハイドレーション」を
+  参照（真のノード保存 / render-on-connect / 廃止 のいずれも未決定）。
 - ストリーミング / 非同期データ解決（Suspense 相当）は現状の同期前提では未対応。入れるなら別途。
 - shadow DOM / Declarative Shadow DOM は現状 light DOM 方針なので対象外。
 
