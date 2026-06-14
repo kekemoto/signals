@@ -121,6 +121,20 @@ export function resolveEvent(name: string, v: unknown): string | null {
   return name.slice(2).toLowerCase(); // onClick → click
 }
 
+/** ref 穴の予約キー。要素生成後にその要素を1度だけ渡す callback の口。 */
+export const REF_KEY = "ref";
+
+/**
+ * ref 穴かを判定する。予約キー `ref` で値が関数のときだけ ref 扱いにし、要素が完成した後に
+ * `fn(el)` を1度だけ呼ぶ（reactive ではない）。値が関数でなければ false を返し、呼び出し側は
+ * 従来どおり属性 / プロパティ処理にフォールバックする（`ref` という名の属性も書けるまま）。
+ * 後始末は callback 内で `onCleanup` を使えば効く（h / html 実行時の所有者がそのまま生きる）。
+ * h.ts / html.ts のどちらからも同じ仕様で使う。
+ */
+export function isRef(name: string, v: unknown): v is (el: Element) => void {
+  return name === REF_KEY && typeof v === "function";
+}
+
 /**
  * 属性名から「属性穴か、プロパティ穴か」を解く。`.` 始まりは `.` を外して DOM プロパティ、
  * それ以外は従来どおり属性。h / tags のキーでも `html` の属性名でも同じ規則で使える。

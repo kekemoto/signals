@@ -5,7 +5,7 @@
 // 関数の子は Node / 配列も返せる（h("ul", () => list.value.map(...)) — html と同じ範囲再描画）。
 // 行の状態を保ちたいリストは For（key 付き差分）を使う。
 
-import { bindProp, toNode } from "./node.js";
+import { bindProp, isRef, toNode } from "./node.js";
 import { isSignal, type Signal } from "./reactive.js";
 
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
@@ -24,9 +24,10 @@ export type PropValue =
 
 /**
  * h(tag, props, ...) の props。`onXxx` はイベント、`.foo` は DOM プロパティ、
- * それ以外のキーは属性。関数 / シグナルはいずれも reactive になる。
+ * 予約キー `ref` は要素を受け取る callback、それ以外のキーは属性。
+ * 関数 / シグナルはいずれも reactive になる。
  */
-export type Props = Record<string, PropValue>;
+export type Props = { ref?: (el: Element) => void } & Record<string, PropValue>;
 
 /** h(tag, props, child) に渡せる子。関数 / シグナルは reactive な子（Node / 配列も返せる）、配列はフラット化される。 */
 export type Child = Node | Renderable | (() => Child) | Signal<Child> | Child[];
@@ -52,12 +53,19 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
   const children = hasProps ? args.slice(1) : args;
 
   // onXxx=イベント / `.foo`=プロパティ / それ以外=属性。配線規則は node.ts に集約（html と共用）。
-  if (props) for (const [key, v] of Object.entries(props)) bindProp(el, key, v);
+  // ref だけは要素が完成してから呼びたいので退避し、children append 後にまとめて実行する。
+  let ref: ((el: Element) => void) | null = null;
+  if (props)
+    for (const [key, v] of Object.entries(props)) {
+      if (isRef(key, v)) ref = v;
+      else bindProp(el, key, v);
+    }
 
   // 子はネストしていてもフラット化し、toNode で変換する（html と同じ挙動）。
   for (const child of (children as unknown[]).flat(Infinity) as Child[]) {
     if (child == null || typeof child === "boolean") continue; // 真偽値はどちらも描かない
     el.append(toNode(child));
   }
+  ref?.(el); // 要素・属性・子がすべて揃った後に1度だけ渡す
   return el;
 }
