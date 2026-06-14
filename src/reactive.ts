@@ -287,6 +287,22 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
   }
 }
 
+// --- rooted -----------------------------------------------------------------
+// createRoot の「中で値を1つ作り、その根の dispose も一緒に取り出す」定型を括り出した
+// 内部ヘルパー。createRoot は引数のコールバックで dispose を受けるため、生成物（node など）と
+// dispose の両方を外に出すには「外で宣言 → コールバック内で代入」になり non-null assertion が
+// 要る。その footgun を1か所に閉じ込め、For / Show のような「作って後で畳む単位」を
+// `const { value, dispose } = rooted(fn)` と宣言的に書けるようにする。公開はしない。
+export function rooted<T>(fn: () => T): { value: T; dispose: () => void } {
+  let value!: T;
+  let dispose!: () => void;
+  createRoot((d) => {
+    dispose = d;
+    value = fn();
+  });
+  return { value, dispose };
+}
+
 // --- getOwner / runWithOwner ------------------------------------------------
 // いまの所有ツリーの親（実行中の effect か createRoot の根）を取り出す。effect の
 // 外・トップレベルでは null。setTimeout / await / fetch のコールバックに入る前に
