@@ -111,6 +111,33 @@ test("style: html の穴でもオブジェクトが効く", () => {
   assert.equal(el.style.color, "blue", "style(html): 更新 color");
 });
 
+test("h: ref が完成した要素を1度だけ受け取る", () => {
+  let got: Element | null = null;
+  let calls = 0;
+  const el = h(
+    "div",
+    {
+      ref: (e) => {
+        got = e;
+        calls++;
+      },
+    },
+    h("span", "child"),
+  );
+  assert.equal(got, el, "h: ref に作った要素そのものが渡る");
+  assert.equal(calls, 1, "h: ref は1度だけ呼ばれる");
+  // ref が呼ばれた時点で子まで配線済み（完成後に渡す不変条件）。
+  assert.equal(
+    (got as unknown as Element).querySelector("span")!.textContent,
+    "child",
+    "h: 子が揃っている",
+  );
+});
+test("tags: ref が効く", () => {
+  let got: Element | null = null;
+  const el = tags.input({ ref: (e) => (got = e) });
+  assert.equal(got, el, "tags: ref に input 要素が渡る");
+});
 // === tags ===
 test("tags: 要素と属性と reactive 子", () => {
   const { div, span } = tags;
@@ -209,6 +236,18 @@ test("html: 複数ルートは fragment", () => {
   assert.equal(host.querySelectorAll("p").length, 2, "html: 複数ルートは fragment");
 });
 
+test("html: ref が内側の要素を完成後に受け取る", () => {
+  const count = signal(2);
+  let got: Element | null = null;
+  const root = html`<div><input ref=${(e: Element) => (got = e)} /><span>${() => count.value}</span></div>`;
+  assert.ok(got != null && (got as Element).tagName === "INPUT", "html: ref に内側の input が渡る");
+  // テンプレート全体の配線が済んだ後に呼ばれる（兄弟の reactive 子も解決済み）。
+  assert.equal(
+    (root as Element).querySelector("span")!.textContent,
+    "2",
+    "html: 兄弟の穴も配線済み",
+  );
+});
 // === signal を直接渡す（関数ラップ不要）===
 test("h: signal を子・属性に直接渡す", () => {
   const count = signal(0);

@@ -11,7 +11,7 @@
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 
-import { resolveEvent, resolveSetter, toAccessor, toNode } from "./node.js";
+import { isRef, resolveEvent, resolveSetter, toAccessor, toNode } from "./node.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
@@ -61,6 +61,8 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
   }
 
   // 3a. 属性の穴を配線する（onXxx はイベント、関数は reactive 属性）。
+  //     ref は木が完成した後に呼びたいので、ここでは退避だけして 3b の後でまとめて実行する。
+  const refs: Array<() => void> = [];
   for (const el of elements) {
     for (const attr of [...el.attributes]) {
       const { name, value } = attr;
@@ -70,6 +72,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
         // マーカー入りの属性を先に外す。`.foo` のプロパティ穴は属性に書き戻さないので、
         // 残すとマーカー（や `.foo` という名の属性）が本物の属性として生きてしまう。
         el.removeAttribute(name);
+        if (isRef(name, v)) {
+          refs.push(() => v(el)); // 子穴の置換まで終えてから渡す
+          continue;
+        }
         const event = resolveEvent(name, v);
         if (event) {
           el.addEventListener(event, v as EventListener); // onClick → click
@@ -98,6 +104,9 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
     if (!m) continue;
     comment.replaceWith(toNode(values[Number(m[1])]));
   }
+
+  // 3c. ref はすべての穴の配線が済んでから（要素が完成した状態で）1度だけ呼ぶ。
+  for (const run of refs) run();
 
   // 4. 前後の空白だけのテキストを落とし、ルートが1つならその要素を返す。
   trimEdges(content);

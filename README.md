@@ -230,8 +230,9 @@ stop(); // 配下の effect をすべて解放
 最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
 キー名に `.` を付けると属性ではなく **DOM プロパティ**へ代入（`{ ".value": count }` →
 `el.value = count.value`、オブジェクト・配列などリッチな値や Custom Element の口に使う）、
-`onXxx` はイベント。子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、
-第2引数がプレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
+`onXxx` はイベント、予約キー `ref` は**作った要素を受け取る callback**（後述）。子は可変長で渡せ、
+ネストした配列はフラット化される。**props は省略でき**、第2引数がプレーンな `{}` でなければ
+（関数・シグナル・Node・文字列・配列なら）子として扱われる。
 
 ```js
 import { h } from "@kekemoto/signals/h";
@@ -252,6 +253,19 @@ document.body.append(el);
 ```js
 const text = signal("");
 const input = h("input", { ".value": text });   // 入力後も signal の変更が反映される
+```
+
+予約キー `ref` に関数を渡すと、**要素が完成した後（属性・子の配線まで済んだ状態）に1度だけ**
+その要素を受け取れる。戻り値で取れない `` html`...` `` 内側の要素にも届く（`ref=${fn}`）。
+reactive ではない（要素1つにつき1回）。後始末が要るなら callback 内で `onCleanup` を使う。
+
+```js
+let inputEl;
+const el = h("input", { ref: (e) => (inputEl = e) });
+inputEl.focus();
+
+// html テンプレート内側の要素も取り出せる
+html`<input ref=${(e) => e.focus()} />`;
 ```
 
 関数の子は文字列・数値だけでなく **`Node` / 配列も返せる**（`` html`...` `` と同じ範囲再描画）。
