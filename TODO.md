@@ -96,7 +96,8 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 `h` / `tags` はスコープ外。マーカー戦略は Lit SSR を参照。
 
 **対応案**: `docs/ssr-hydration-plan.md` の「段階的な実装計画」に沿って進める
-（①descriptors 分離 → ②emit 追加 → ③wire を adopt 対応 → ④hydrate / defineElement adopt →
+（①descriptors 分離【実装済み: `html.ts` の `parse` / `wire` 分離・テンプレ単位キャッシュ。挙動は不変】
+→ ②emit 追加 → ③wire を adopt 対応 → ④hydrate / defineElement adopt →
 ⑤state 直列化）。テストは「文字列出力 / ハイドレーション（ノード同一性）/ パリティ」の 3 層。
 
 ---
