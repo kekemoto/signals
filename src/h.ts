@@ -5,7 +5,7 @@
 // 関数の子は Node / 配列も返せる（h("ul", () => list.value.map(...)) — html と同じ範囲再描画）。
 // 行の状態を保ちたいリストは For（key 付き差分）を使う。
 
-import { resolveSetter, toNode } from "./node.js";
+import { resolveEvent, resolveSetter, toNode } from "./node.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
 
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
@@ -53,8 +53,9 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
 
   for (const key in props || {}) {
     const v = (props as Props)[key];
-    if (key.startsWith("on") && typeof v === "function") {
-      el.addEventListener(key.slice(2).toLowerCase(), v as EventListener); // onClick → click
+    const event = resolveEvent(key, v);
+    if (event) {
+      el.addEventListener(event, v as EventListener); // onClick → click
       continue;
     }
     // キー名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。

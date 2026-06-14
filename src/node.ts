@@ -109,6 +109,19 @@ export function setProp(el: Element, key: string, v: unknown): void {
 }
 
 /**
+ * イベントハンドラ穴かを判定する。`onClick`（値が関数）→ `"click"` のように
+ * addEventListener へ渡すイベント型名を返す。`on` 始まりで値が関数のときだけイベント扱いにし、
+ * そうでなければ null を返す（呼び出し側は属性 / プロパティ処理にフォールバックする）。
+ * 型名は小文字化する。html は HTML パーサが属性名を小文字化するので元から小文字相当だが、
+ * h / tags のキー（`onClick`）と同じ規則に揃えるためここで一括して小文字にする。
+ * h.ts / html.ts のどちらからも同じ仕様で使う。
+ */
+export function resolveEvent(name: string, v: unknown): string | null {
+  if (!name.startsWith("on") || typeof v !== "function") return null;
+  return name.slice(2).toLowerCase(); // onClick → click
+}
+
+/**
  * 属性名から「属性穴か、プロパティ穴か」を解く。`.` 始まりは `.` を外して DOM プロパティ、
  * それ以外は従来どおり属性。h / tags のキーでも `html` の属性名でも同じ規則で使える。
  */
