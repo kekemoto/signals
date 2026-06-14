@@ -11,11 +11,8 @@
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 
-import { isProp, type Prop, resolveSetter, setProp, toNode } from "./node.js";
+import { resolveSetter, toNode } from "./node.js";
 import { effect, isSignal } from "./reactive.js";
-
-// prop() を `@kekemoto/signals/html` からも使えるよう再公開する（実体は node.ts）。
-export { type Prop, prop } from "./node.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -77,20 +74,14 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
           el.addEventListener(name.slice(2), v as EventListener); // onclick → click
           continue;
         }
-        // 振り分け: 属性名の `.foo`（resolveSetter）か、値側の prop(...) で DOM プロパティ代入になる。
-        const { key, set: attrSet } = resolveSetter(name);
-        let set = attrSet;
-        let val: unknown = v;
-        if (isProp(val)) {
-          val = (val as Prop).value; // 箱を外して中身を従来どおり処理
-          set = setProp;
-        }
-        if (typeof val === "function") {
-          effect(() => set(el, key, (val as () => unknown)()));
-        } else if (isSignal(val)) {
-          effect(() => set(el, key, val.value)); // シグナル直接
+        // 属性名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
+        const { key, set } = resolveSetter(name);
+        if (typeof v === "function") {
+          effect(() => set(el, key, (v as () => unknown)()));
+        } else if (isSignal(v)) {
+          effect(() => set(el, key, v.value)); // シグナル直接
         } else {
-          set(el, key, val); // 属性なら null/false/真偽の意味を保つ
+          set(el, key, v); // 属性なら null/false/真偽の意味を保つ
         }
       } else if (ATTR_RE.test(value)) {
         // "btn ${...}" のような部分埋め込み
