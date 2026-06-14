@@ -18,38 +18,25 @@
 
 ## いまのアーキテクチャ（実装の出発点・要点）
 
-実装着手前に必ず以下を読むこと。行番号は本ドキュメント作成時点（main 取り込み後）のもの。
+実装着手前に各ファイルを読むこと。以下は「どこが設計の効きどころか」だけを示す（行番号は並行開発で
+すぐズレるので載せない。シンボル名で追うこと）。
 
-- `src/html.ts`
-  - `html()` は **内部で一度「マーカー入り文字列」を組み立て**（`html.ts:29-46`）、
-    `template.innerHTML` でブラウザにパースさせ（`html.ts:49-51`）、TreeWalker で要素 /
-    コメントを集めて配線する（`html.ts:53-98`）。**＝すでに「文字列 → パース → 配線」を
-    通っている。** ここが今回の設計が素直に乗る理由。
-  - 穴の分類：属性位置か子位置かを `inTag` 走査で判定（`html.ts:30-46`）。属性穴は
-    `bindProp`（`html.ts:81`）、部分埋め込み属性は `wireDynamicAttr`（`html.ts:112`）、
-    子穴はコメントを `toNode(value)` で置換（`html.ts:90-95`）、`ref` は最後に実行
-    （`html.ts:97-98`）。
-- `src/node.ts`
-  - `bindProp`（`node.ts:155`）が「`onXxx`=イベント / `.foo`=DOM プロパティ / それ以外=属性、
-    関数・signal は accessor 化して effect」という**配線規則の集約点**。`resolveEvent`
-    （`node.ts:119`）・`resolveSetter`（`node.ts:142`）・`isRef`（`node.ts:134`）・
-    `setAttr`（`node.ts:91`）・`setProp`（`node.ts:107`）・`toAccessor`（`node.ts:9`）。
-  - 子穴の `toNode`（`node.ts:14`）：関数 / signal は `<!--hole-->…<!--/hole-->` の**コメント
-    対**で範囲を作り、effect で中身を再描画する。**初回 effect は既存ノードを消して作り直す**
-    （`node.ts:34-36`）—— ここがハイドレーションを壊す核心。「初回だけ adopt」分岐が要る。
-- `src/element.ts`
-  - `defineElement`：`connectedCallback` で `createRoot` → `setup` → 返り値を host 直下
-    （light DOM）へ append（`element.ts:154-163`）。接続時に既存の light DOM の子を退避
-    （`makeContext` 内 `lightChildren`）。`ctx.prop(name)` は属性 / DOM プロパティの両入力を
-    1 つの signal に合流（MutationObserver 経由、`element.ts:118-129`）。
-  - **現状は host の中身を作り直す前提**（既存子は slot 入力として退避するだけ）。SSR の中身を
-    「消さずに adopt」するモードが必要。
-- `src/for.ts` / `src/show.ts`：`<!--for-->…<!--/for-->` / `<!--show-->…<!--/show-->` の
-  コメント対で範囲を持つ。初回 effect で**全行 / 中身を新規生成**するので、これも「初回 adopt」
-  分岐が要る。
-- `src/reactive.ts`：`signal` / `effect` / `createRoot` / `rooted` / `getOwner` /
-  `runWithOwner` / `onCleanup` / `untrack` / `cached`。fine-grained なので**サーバでは effect は
-  不要**（値を 1 回読むだけ）という性質が今回の鍵。
+- `src/html.ts`：`html()` は内部で**一度マーカー入り文字列を組み立て → `template.innerHTML` で
+  パース → TreeWalker で配線**、という流れ。**＝すでに「文字列 → パース → 配線」を通っている**のが
+  今回の設計が素直に乗る理由。穴は `inTag` 走査で属性位置 / 子位置を判定し、属性穴は `bindProp`、
+  部分埋め込み属性は `wireDynamicAttr`、子穴はコメントを `toNode(value)` で置換する。
+- `src/node.ts`：`bindProp` が**配線規則の集約点**（`onXxx`=イベント / `.foo`=DOM プロパティ /
+  それ以外=属性、関数・signal は accessor 化して effect）。子穴の `toNode` は `<!--hole-->…
+  <!--/hole-->` のコメント対で範囲を作り effect で再描画するが、**初回 effect で既存ノードを消して
+  作り直す** —— ここがハイドレーションを壊す核心で、「初回だけ adopt」分岐が要る。
+- `src/element.ts`：`defineElement` は `connectedCallback` で `createRoot` → `setup` → 返り値を
+  host 直下（light DOM）へ append。`ctx.prop(name)` が属性 / DOM プロパティ両入力を 1 つの signal に
+  合流。**現状は host の中身を作り直す前提**（既存子は slot 入力として退避するだけ）なので、
+  「消さずに adopt」するモードが要る。
+- `src/for.ts` / `src/show.ts`：`<!--for-->` / `<!--show-->` のコメント対で範囲を持ち、初回 effect で
+  全行 / 中身を新規生成する。これも「初回 adopt」分岐が要る。
+- `src/reactive.ts`：`signal` / `effect` / `createRoot` / `getOwner` / `runWithOwner` 等。
+  fine-grained なので**サーバでは effect 不要**（値を 1 回読むだけ）という性質が今回の鍵。
 
 すべて `document` / `customElements` / `MutationObserver` 等のブラウザ API に直結している。
 
@@ -101,22 +88,22 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
   残るので別 state ブロブが原則不要。複雑な初期データが要る場合のみ、`<script type="application/json">`
   等での直列化規約を別途定義する（第1弾では単純 props のみを対象に）。
 - `defineElement` 側は「接続時に既存の light DOM の子を**消さず adopt** する」モードを足す。
-  現状の `connectedCallback`（`element.ts:154-163`）は append で組み立てるので、ハイドレーション
+  現状の `connectedCallback` は append で組み立てるので、ハイドレーション
   中は setup の出力を新規生成せず既存子に `wire` する経路に切り替える。slot 投影との整合に注意。
 
 ## エミッタが背負う実装上の注意（漏れなく）
 
 二重実装ではないが、共有エミッタ内部で面倒を見る必要がある点。
 
-1. **エスケープ**：現状のマーカー組み立て（`html.ts:29-46`）は値を入れないのでエスケープが無い。
+1. **エスケープ**：現状のマーカー組み立ては値を入れないのでエスケープが無い。
    値を吐くなら本文 `<` `&`、属性値 `"` `&` のエスケープを必須にする（XSS）。`wire` 側は
    既存の `setAttr` / `setProp` を使うのでエスケープ不要（DOM API が処理する）。
 2. **イベント穴は値を出さない**：サーバ HTML に `onclick="…"` を焼かない。`wire` が要素を
    見つけられる**最小マーカー**（例：`data-hk` 的な属性、または既存のコメント方式）だけ出し、
    `wire` が `addEventListener` する（`bindProp` / `resolveEvent` の規則を再利用）。
 3. **子穴は「開閉ペア」のマーカー**：現状の単発置換コメント `<!--signals-hole-N-->`
-   （`html.ts:45`,`html.ts:92`）では adopt 時に範囲を復元できない。`toNode` が使う
-   `<!--hole-->…<!--/hole-->`（`node.ts:22-23`）と同様の**対**で出し、`wire` がその間を担当
+   では adopt 時に範囲を復元できない。`toNode` が使う
+   `<!--hole-->…<!--/hole-->` と同様の**対**で出し、`wire` がその間を担当
    ノードと認識して effect を張り直す。`For` / `Show` のコメント対も同様に出力へ残す。
 4. **reactive 属性 / 子の初期値**：サーバは「計算後の初期値」を埋める（関数を 1 回呼ぶ /
    signal を 1 回読む。effect は張らない）。`wire` 側で effect をセットアップする。
@@ -130,7 +117,8 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
 8. **サーバ環境ガード**：サーバビルドは `document` / `customElements` に触れてはいけない。
    `emit` は純粋に文字列を作る関数として **DOM API を一切呼ばない**よう実装する
    （`template.innerHTML` を経由しない別経路）。`defineElement` の `customElements.define`
-   （`element.ts:181`）はサーバで死ぬので、サーバ用エントリから切り離すか遅延ガードする。
+   `defineElement` の `customElements.define` はサーバで死ぬので、サーバ用エントリから切り離すか
+   遅延ガードする。
 
 先行例として **Lit の `@lit-labs/ssr`** がこの方式そのもの（コメント / 属性マーカーを吐き、
 ハイドレーション時に拾って strip）。設計判断に迷ったら lit のマーカー戦略を参照する。
@@ -143,7 +131,7 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
 2. **`emit(descriptors, values)` の追加**：値入り＋マーカー入り文字列を返す純粋関数。エスケープ・
    イベント穴のスキップ・子穴の開閉ペア・属性の値埋めを実装。サーバ用エントリ（DOM 非依存）を
    切る。
-3. **`wire` を adopt 対応に**：`toNode`（`node.ts:34-36`）・`For`・`Show` に「初回は既存ノードを
+3. **`wire` を adopt 対応に**：`toNode`・`For`・`Show` に「初回は既存ノードを
    採用して作り直さない」分岐を足す。ハイドレーション中フラグ（`runWithOwner` 的なコンテキスト、
    または明示引数）で create / adopt を切り替える。
 4. **`hydrate` エントリ + `defineElement` の adopt モード**：`connectedCallback` で既存子を
@@ -167,19 +155,19 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
 
 ## h / tags のハイドレーション（未決定・両論併記）
 
-第1弾スコープ外だが、将来どう扱うかは**未決定**。`tags` は `h` の完全な糖衣（`tags.ts:18`）なので、
+第1弾スコープ外だが、将来どう扱うかは**未決定**。`tags` は `h` の完全な糖衣なので、
 判断は `h` についてのみ行えば `tags` は自動で従う。**`h` / `tags` 自体を廃止して `html` に一本化する
 案も候補**に残っている（その場合 SSR スコープは `html` だけになり、本節の議論は不要になる）。
 
 ### html 設計との関係：何が共有でき、何ができないか
 
 - **クライアント（adopt）は素直で小さい。**
-  - `bindProp`（`node.ts:155`）は**既存ノードに対して冪等**。サーバが作った既存要素を渡せば、
+  - `bindProp` は**既存ノードに対して冪等**。サーバが作った既存要素を渡せば、
     初回 effect が同じ値を入れ直すだけ／イベントは addEventListener するだけで配線が完了する。
     → 属性・イベントの adopt は**新コードほぼゼロ**。
   - 子の reactive 範囲（`toNode` / `For` / `Show`）は html と完全共用。html 用に adopt 化すれば
     そのまま乗る。
-  - `h` 固有で要るのは実質 `document.createElement` / `append`（`h.ts:48`,`h.ts:67`）を
+  - `h` 固有で要るのは実質 `document.createElement` / `append` を
     **カーソル方式（既存DOMから次のノードを取る、Solid の `getNextElement` 相当）に差し替える1点**。
     ambient な hydration カーソルを `h` の生成境界に通す（owner / module レベルの context）。
   - `h` はクライアントで**再実行**されるので「どの属性が reactive か」等を server から教わる必要が
