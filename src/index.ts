@@ -16,6 +16,7 @@ export {
   isSignal,
   type Owner,
   onCleanup,
+  onError,
   runWithOwner,
   type Signal,
   signal,

@@ -5,6 +5,7 @@
 //   effect    : 依存が変わると再実行される副作用。dispose 関数を返す
 //   batch     : 複数の変更を1回の再実行にまとめる
 //   onCleanup : effect の後始末を登録する。再実行直前・dispose時に呼ばれる
+//   onError   : スコープにエラーバウンダリを張る。配下の effect の例外を所有ツリー越しに受ける
 //   cached    : 派生関数を計算共有＋value-cutoff 付きにする糖衣（読み口は () のまま）
 //
 // 派生値は「ただの関数」で書く:
@@ -25,6 +26,8 @@
 //   effect）の dispose を1つ握るだけで配下ごと片付く。
 //   onCleanup(fn) は「再実行直前・dispose時に呼ぶ後始末」を現在の effect に登録する
 //   （setInterval の clear、イベント購読の解除、fetch の abort など）。
+//   onError(fn) は現在のスコープに「エラーバウンダリ」を張る。配下の effect が投げた例外は
+//   所有ツリーを根へ辿り、最初に見つかった onError ハンドラへ渡る（なければ投げ直す）。
 //
 // 等価判定は Object.is 固定。
 //
@@ -53,6 +56,7 @@ export interface Owner {
   deps: Set<Subscribers>; // 自分が購読している購読者リスト（古い依存の掃除用）
   children: Set<Computation>; // 子ノード（自分の中で作られた effect）
   cleanups: Array<() => void>; // onCleanup で登録された後始末
+  errors: Array<(err: unknown) => void>; // onError で登録したエラーハンドラ（このスコープのバウンダリ）
   owner: Owner | null; // 作成時の親
 }
 
@@ -87,9 +91,9 @@ const DEV =
 // pending を捨てて例外を投げる（無限ループでハング／スタックオーバーフローする代わりに、
 // 検出可能なエラーにして次の更新から回復できるようにする）。
 //
-// 例外耐性: 1つの effect が投げても同じ世代の残りはすべて実行し、最初の例外だけを最後に
-// 投げ直す。pending は世代ごとに実行前クリアするので、途中で抜けても無関係な effect を
-// 巻き添えにしない。
+// 例外耐性: 1つの effect が投げても同じ世代の残りはすべて実行する。例外はまず所有ツリーの
+// onError バウンダリへ渡し（routeError）、誰も拾わなければ最初の1件だけを最後に投げ直す。
+// pending は世代ごとに実行前クリアするので、途中で抜けても無関係な effect を巻き添えにしない。
 function flush(): void {
   if (flushing) return; // 既に回している → 積まれた分は外側の while が拾う
   flushing = true;
@@ -111,7 +115,9 @@ function flush(): void {
         try {
           run();
         } catch (err) {
-          if (!errored) {
+          // まず所有ツリーの onError バウンダリに渡す。誰も拾わなければ従来どおり
+          // 最初の例外だけ後で投げ直す（同じ世代の残りは実行を続ける）。
+          if (!routeError(run, err) && !errored) {
             firstError = err;
             errored = true;
           }
@@ -147,6 +153,7 @@ function cleanup(node: Owner): void {
   node.children.clear();
   for (const fn of node.cleanups) fn(); // ユーザー登録の後始末
   node.cleanups.length = 0;
+  node.errors.length = 0; // エラーハンドラも捨てる（cleanups と同じく再実行で張り直す）
   unsubscribe(node); // 購読解除
 }
 
@@ -162,6 +169,24 @@ function dispose(node: Owner): void {
   markDisposed(node); // 先にサブツリーを「死んだ」ことにする（cleanup より前）
   cleanup(node);
   if (node.owner) node.owner.children.delete(node as Computation);
+}
+
+// effect 内で投げられた例外を所有ツリーの「エラーバウンダリ」へ届ける。
+// 例外を投げたノード自身から根に向かって owner チェーンを辿り、最初に onError ハンドラを
+// 持つスコープに渡す（自スコープで登録したハンドラも自分の例外を捕まえる）。
+// 1つでも届けられたら true、ツリーにハンドラが無ければ false（呼び出し側が現行どおり投げ直す）。
+// ハンドラ自身が投げたら、その新しい例外は1つ上のスコープへ送る（同じバウンダリでは捕まえ直さない）。
+function routeError(node: Owner | null, err: unknown): boolean {
+  for (let o = node; o; o = o.owner) {
+    if (o.errors.length === 0) continue;
+    try {
+      for (const handler of o.errors) handler(err);
+    } catch (next) {
+      return routeError(o.owner, next); // ハンドラが投げた → 上位バウンダリへ
+    }
+    return true;
+  }
+  return false;
 }
 
 // 読み取り中の effect を、いま触った購読者リストに相互登録する
@@ -237,10 +262,17 @@ export function effect(fn: () => void): () => void {
   run.deps = new Set();
   run.children = new Set();
   run.cleanups = [];
+  run.errors = [];
   run.disposed = false;
   run.owner = currentOwner; // 作成時の親（再実行では変わらない）
   if (currentOwner) currentOwner.children.add(run); // 親にぶら下げる
-  run();
+  // 初回の同期実行も flush 時と同じく onError バウンダリへ通す（誰も拾わなければ投げ直す）。
+  // これで「生成時に投げた effect」も、再実行時に投げた場合と同じ経路でハンドリングできる。
+  try {
+    run();
+  } catch (err) {
+    if (!routeError(run, err)) throw err;
+  }
   return () => dispose(run); // dispose（サブツリーごと畳む）
 }
 
@@ -250,6 +282,21 @@ export function effect(fn: () => void): () => void {
 // effect の外で呼んでも何も起きない（捨てられる）。
 export function onCleanup(fn: () => void): void {
   if (currentOwner) currentOwner.cleanups.push(fn);
+}
+
+// --- onError ----------------------------------------------------------------
+// 現在のスコープ（effect / createRoot の根）に「エラーバウンダリ」を張る。このスコープと
+// その配下の effect が投げた例外は、所有ツリーを根へ向かって辿り、最初に見つかった onError
+// ハンドラへ届く（onCleanup と同じく、再実行ごとに張り直される）。どのスコープにも
+// ハンドラが無ければ従来どおり例外は投げ直される。effect の外で呼んでも何も起きない。
+//   createRoot(() => {
+//     onError((e) => console.error("UI でエラー:", e)); // アプリ全体のバウンダリ
+//     effect(() => { ...投げうる処理... });
+//   });
+// 注意: ハンドラは「壊れた effect の再実行を肩代わりする」ものではなく、例外を1か所に集める
+// 通知口。状態を安全な値へ戻すなどの回復はハンドラ内で明示的に行う。
+export function onError(handler: (err: unknown) => void): void {
+  if (currentOwner) currentOwner.errors.push(handler);
 }
 
 // --- untrack ----------------------------------------------------------------
@@ -274,7 +321,13 @@ export function untrack<T>(fn: () => T): T {
 // 親の所有ツリーには繋がない（＝自動では畳まれない、明示 dispose 用の独立スコープ）。
 // リストの行のように「個別に生かしたり消したりしたい単位」を包むのに使う。
 export function createRoot<T>(fn: (dispose: () => void) => T): T {
-  const owner: Owner = { deps: new Set(), children: new Set(), cleanups: [], owner: null };
+  const owner: Owner = {
+    deps: new Set(),
+    children: new Set(),
+    cleanups: [],
+    errors: [],
+    owner: null,
+  };
   const prevOwner = currentOwner;
   const prevObserver = activeComputation;
   currentOwner = owner;

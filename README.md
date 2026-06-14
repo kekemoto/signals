@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `cached` / `store` / `onCleanup` / `untrack` / `createRoot` / `getOwner` / `runWithOwner` / `isSignal`
+- **コア** — `signal` / `effect` / `batch` / `cached` / `store` / `onCleanup` / `onError` / `untrack` / `createRoot` / `getOwner` / `runWithOwner` / `isSignal`
 - **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
 
 ## インストール
@@ -178,6 +178,35 @@ effect(() => {
   onCleanup(() => controller.abort()); // id が変わる前・dispose 時にキャンセル
 });
 ```
+
+### `onError(handler)`
+
+いまのスコープ（`effect` / `createRoot` の根）に **エラーバウンダリ** を張る。このスコープと
+その配下の `effect` が投げた例外は、所有ツリーを根に向かって辿り、最初に見つかった `onError`
+ハンドラへ届く。どのスコープにもハンドラが無ければ、従来どおり例外は投げ直される
+（`signal` を書いた側へ飛ぶ）。`onCleanup` と同じく `effect` の再実行ごとに張り直され、
+スコープの外で呼ぶと無視される。
+
+```js
+import { createRoot, effect, onError, signal } from "@kekemoto/signals";
+
+const userId = signal(1);
+
+createRoot(() => {
+  onError((err) => console.error("画面の更新でエラー:", err)); // アプリ全体のバウンダリ
+
+  effect(() => {
+    if (userId.value < 0) throw new Error("不正な userId");
+    // ... 描画など、投げうる処理 ...
+  });
+});
+
+userId.value = -1; // effect の例外は↑のハンドラへ届く（書いた側へは飛ばない）
+```
+
+ハンドラは「壊れた `effect` の再実行を肩代わりする」ものではなく、例外を1か所に集める通知口。
+状態を安全な値へ戻すなどの回復は、ハンドラの中で明示的に行う。ハンドラ自身が投げた例外は、
+1つ上のスコープのバウンダリへ送られる。
 
 ### `untrack(fn)`
 
