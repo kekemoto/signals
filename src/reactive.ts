@@ -115,11 +115,16 @@ function flush(): void {
         try {
           run();
         } catch (err) {
-          // まず所有ツリーの onError バウンダリに渡す。誰も拾わなければ従来どおり
-          // 最初の例外だけ後で投げ直す（同じ世代の残りは実行を続ける）。
-          if (!routeError(run, err) && !errored) {
-            firstError = err;
-            errored = true;
+          // 例外は所有ツリーの onError バウンダリへ渡す。誰も拾わなければ routeError が
+          // 投げ直すので、ここで受けて最初の1件だけ最後に再送する（同じ世代の残りは続行）。
+          // ハンドラ自身が投げた例外もこの経路で拾い直して再送する（握り潰さない）。
+          try {
+            routeError(run, err);
+          } catch (unhandled) {
+            if (!errored) {
+              firstError = unhandled;
+              errored = true;
+            }
           }
         }
       }
@@ -174,19 +179,21 @@ function dispose(node: Owner): void {
 // effect 内で投げられた例外を所有ツリーの「エラーバウンダリ」へ届ける。
 // 例外を投げたノード自身から根に向かって owner チェーンを辿り、最初に onError ハンドラを
 // 持つスコープに渡す（自スコープで登録したハンドラも自分の例外を捕まえる）。
-// 1つでも届けられたら true、ツリーにハンドラが無ければ false（呼び出し側が現行どおり投げ直す）。
-// ハンドラ自身が投げたら、その新しい例外は1つ上のスコープへ送る（同じバウンダリでは捕まえ直さない）。
-function routeError(node: Owner | null, err: unknown): boolean {
+// どのスコープにもハンドラが無ければ、その例外をそのまま投げ直す（呼び出し側が受け取る）。
+// ハンドラ自身が投げたら、その新しい例外を1つ上のスコープへ送る（＝握り潰さず、最終的に
+// 拾い手がいなければ「新しい方の」例外が投げ直される）。
+function routeError(node: Owner | null, err: unknown): void {
   for (let o = node; o; o = o.owner) {
     if (o.errors.length === 0) continue;
     try {
       for (const handler of o.errors) handler(err);
+      return; // 捕捉成功
     } catch (next) {
-      return routeError(o.owner, next); // ハンドラが投げた → 上位バウンダリへ
+      routeError(o.owner, next); // ハンドラが投げた → 上位へ（無ければ投げ直す）
+      return;
     }
-    return true;
   }
-  return false;
+  throw err; // バウンダリ無し → 投げ直す
 }
 
 // 読み取り中の effect を、いま触った購読者リストに相互登録する
@@ -266,12 +273,12 @@ export function effect(fn: () => void): () => void {
   run.disposed = false;
   run.owner = currentOwner; // 作成時の親（再実行では変わらない）
   if (currentOwner) currentOwner.children.add(run); // 親にぶら下げる
-  // 初回の同期実行も flush 時と同じく onError バウンダリへ通す（誰も拾わなければ投げ直す）。
-  // これで「生成時に投げた effect」も、再実行時に投げた場合と同じ経路でハンドリングできる。
+  // 初回の同期実行も flush 時と同じく onError バウンダリへ通す。誰も拾わなければ routeError が
+  // そのまま投げ直すので、「生成時に投げた effect」も再実行時と同じ経路でハンドリングできる。
   try {
     run();
   } catch (err) {
-    if (!routeError(run, err)) throw err;
+    routeError(run, err);
   }
   return () => dispose(run); // dispose（サブツリーごと畳む）
 }

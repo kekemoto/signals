@@ -439,6 +439,27 @@ test("onError: ハンドラ自身の例外は1つ上のバウンダリへ送る"
   assert.equal((outer[0] as Error).message, "from-handler");
 });
 
+test("onError: ハンドラの例外を拾う上位が無ければ投げ直す（握り潰さない）", () => {
+  const s = signal(0);
+  // 親 effect にだけハンドラを置き、そのハンドラ自身が投げる。上位にバウンダリは無い。
+  effect(() => {
+    onError(() => {
+      throw new Error("from-handler");
+    });
+    effect(() => {
+      if (s.value === 1) throw new Error("orig");
+    });
+  });
+  // 上位の拾い手が無いので、握り潰されず（orig でもなく）ハンドラの例外が投げ直される。
+  assert.throws(
+    () => {
+      s.value = 1;
+    },
+    /from-handler/,
+    "ハンドラの例外が握り潰されず投げ直される",
+  );
+});
+
 test("onError: オーナーがないと dev 警告（登録されず無視される）", () => {
   // cached と同様、dev ビルドでだけ警告する。NODE_ENV 未設定 = dev で発火。
   const dev = typeof process === "undefined" || process.env.NODE_ENV !== "production";
