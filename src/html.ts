@@ -11,8 +11,8 @@
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 
-import { resolveSetter, toNode } from "./node.js";
-import { effect, isSignal } from "./reactive.js";
+import { resolveSetter, toAccessor, toNode } from "./node.js";
+import { effect, isSignal, type Signal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -76,10 +76,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
         }
         // 属性名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
         const { key, set } = resolveSetter(name);
-        if (typeof v === "function") {
-          effect(() => set(el, key, (v as () => unknown)()));
-        } else if (isSignal(v)) {
-          effect(() => set(el, key, v.value)); // シグナル直接
+        if (typeof v === "function" || isSignal(v)) {
+          // 関数穴もシグナル直渡しも accessor に揃えて reactive にする
+          const acc = toAccessor(v as Signal<unknown> | (() => unknown));
+          effect(() => set(el, key, acc()));
         } else {
           set(el, key, v); // 属性なら null/false/真偽の意味を保つ
         }

@@ -9,7 +9,8 @@
 //   - when が真なら render() を、偽なら fallback() を表示する
 //   - 切り替え時に中身を createRoot で作り、消えるときは dispose（中の effect も止まる）
 //   - when の「真偽」が変わったときだけ作り直す（同じ間は据え置き）
-import { createRoot, effect, isSignal, type Signal } from "./reactive.js";
+import { toAccessor } from "./node.js";
+import { createRoot, effect, type Signal } from "./reactive.js";
 
 type Branch = () => Node | null | undefined;
 // render 用の枝。「真だった値を返す accessor」を受け取る（引数を読まなくてもよいので
@@ -26,7 +27,7 @@ export function Show<T>(
   render: RenderBranch<T>,
   fallback: Branch | null = null,
 ): DocumentFragment {
-  const whenFn = (isSignal(when) ? () => when.value : when) as () => T; // signal なら .value を読む関数に
+  const whenFn = toAccessor(when); // signal なら .value を読む関数に正規化
   // 「真だった値」を返す accessor。render は show が真の間だけ生きる部分木から読むので、
   // whenFn() は常に真値として扱える（型上も NonNullable<T> に絞る）。真偽が偽に変わる時は
   // 先に外側の effect がこの部分木を dispose するため、ここから偽値が読まれることはない。
