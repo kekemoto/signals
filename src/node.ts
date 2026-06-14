@@ -46,26 +46,36 @@ export function toNode(child: unknown): Node {
   return document.createTextNode(String(child));
 }
 
-// 属性を書いても「初期値」しか変わらないフォーム系のキー。
-// （input.value 等は、ユーザー入力後は属性とプロパティが乖離する）
-const FORM_PROPS = new Set(["value", "checked", "selected", "disabled"]);
-
 /**
- * 属性を設定する。null / false は属性を外し、true は空文字（真偽属性）。
+ * 属性を設定する。null / false は属性を外し、true は空文字（真偽属性）、それ以外は文字列化。
  * これは全キー共通の規則で、aria-* / data-* も例外にしない（false=削除なので付け外しできる）。
  * `aria-hidden="false"` のように "false" という文字列自体を残したいときは、真偽値ではなく
  * 文字列 "false" を渡す（文字列はそのまま属性に書かれる）。
- * ただし次の2つはプロパティ代入に切り替える（属性は文字列しか運べないため）:
- * - リッチな値（オブジェクト・関数・配列）→ `el[key] = v`（Custom Element への入力口）
- * - フォーム系の既知キー（value / checked / selected / disabled）→ 現在値を直接更新
+ * 属性は文字列しか運べないので、value / checked のように DOM プロパティへ入れたい値や
+ * オブジェクト・配列などリッチな値は、属性ではなく `.` 接頭辞のプロパティ穴（setProp）を使う。
  */
 export function setAttr(el: Element, key: string, v: unknown): void {
-  if ((typeof v === "object" && v !== null) || typeof v === "function") {
-    (el as unknown as Record<string, unknown>)[key] = v;
-  } else if (FORM_PROPS.has(key) && key in el) {
-    // value だけは null/undefined を空文字に丸める（el.value = null は "null" 表示になるため）。
-    // 真偽系（checked 等）は IDL 側の ToBoolean 変換に任せる。
-    (el as unknown as Record<string, unknown>)[key] = key === "value" && v == null ? "" : v;
-  } else if (v == null || v === false) el.removeAttribute(key);
+  if (v == null || v === false) el.removeAttribute(key);
   else el.setAttribute(key, v === true ? "" : String(v));
+}
+
+/**
+ * DOM プロパティへ直接代入する（`el[key] = v`）。`.value` / `.checked` のように
+ * 属性では「初期値」しか変えられないフォーム系の現在値や、Custom Element へ渡す
+ * オブジェクト・配列・関数などのリッチな値の入口。値は丸めず素のまま代入する
+ * （`.value=${null}` を空にしたいなら呼び出し側で `?? ""` する）。
+ */
+export function setProp(el: Element, key: string, v: unknown): void {
+  (el as unknown as Record<string, unknown>)[key] = v;
+}
+
+/**
+ * 属性名から「属性穴か、プロパティ穴か」を解く。`.` 始まりは `.` を外して DOM プロパティ、
+ * それ以外は従来どおり属性。h / tags のキーでも `html` の属性名でも同じ規則で使える。
+ */
+export function resolveSetter(name: string): {
+  key: string;
+  set: (el: Element, key: string, v: unknown) => void;
+} {
+  return name.startsWith(".") ? { key: name.slice(1), set: setProp } : { key: name, set: setAttr };
 }

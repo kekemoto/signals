@@ -26,7 +26,7 @@ npm install @kekemoto/signals
   const count = signal(0);
   document.body.append(
     div(
-      span(() => count.value),
+      span(count),
       button({ onClick: () => count.value++ }, "+1"),
     ),
   );
@@ -228,8 +228,10 @@ stop(); // 配下の effect をすべて解放
 ### `h(tag, props?, ...children)`
 
 最小 hyperscript。props や子の値が関数 / シグナルなら reactive な属性・子になる。
-子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、第2引数が
-プレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
+キー名に `.` を付けると属性ではなく **DOM プロパティ**へ代入（`{ ".value": count }` →
+`el.value = count.value`、オブジェクト・配列などリッチな値や Custom Element の口に使う）、
+`onXxx` はイベント。子は可変長で渡せ、ネストした配列はフラット化される。**props は省略でき**、
+第2引数がプレーンな `{}` でなければ（関数・シグナル・Node・文字列・配列なら）子として扱われる。
 
 ```js
 import { h } from "@kekemoto/signals/h";
@@ -238,11 +240,18 @@ import { signal } from "@kekemoto/signals";
 const count = signal(0);
 
 const el = h("div", { class: "box" },
-  h("span", () => `count: ${count.value}`),   // props 省略
+  h("span", count),                            // シグナル直渡し（props 省略）
   h("button", { onClick: () => count.value++ }, "+1"),
 );
 
 document.body.append(el);
+```
+
+`value` / `checked` など、属性では「初期値」しか変えられないフォーム系は `.` 付きキーで渡す。
+
+```js
+const text = signal("");
+const input = h("input", { ".value": text });   // 入力後も signal の変更が反映される
 ```
 
 関数の子は文字列・数値だけでなく **`Node` / 配列も返せる**（`` html`...` `` と同じ範囲再描画）。
@@ -268,7 +277,7 @@ const { div, button, span, myCard } = tags;
 const count = signal(0);
 
 const el = div(
-  span(() => count.value),
+  span(count),                                  // シグナル直渡し
   button({ onClick: () => count.value++ }, "+1"),
   myCard({ title: "hi" }),                      // → <my-card title="hi">
 );
@@ -280,7 +289,8 @@ document.body.append(el);
 
 タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
 静的な構造は `<template>` で一度だけパースし、`${...}` の穴だけを配線する。
-関数 / シグナルの穴は reactive（属性・子）になり、`onXxx=${fn}` はイベントになる。
+関数 / シグナルの穴は reactive（属性・子）になり、`onXxx=${fn}` はイベント、
+`.foo=${v}` は DOM プロパティ代入になる。
 
 ```js
 import { html } from "@kekemoto/signals/html";
@@ -303,12 +313,32 @@ document.body.append(el);
 - 子の関数穴は `Node` / 配列も返せる。素の `.map` でリスト、三項演算子で条件分岐が書ける。
 - ルート要素が1つならその要素を、複数なら `DocumentFragment` を返す。
 
-> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: 設定する値（関数・シグナルなら
-> その評価結果）が**オブジェクト・配列**なら、属性ではなく DOM **プロパティ**に代入される
-> （`el.items = [...]` — 属性は文字列しか運べないため。Custom Element にリッチな値を渡す口）。
-> また **`value` / `checked` / `selected` / `disabled`** は属性だと「初期値」しか変わらないため、
-> 常にプロパティを更新する（ユーザーが input に入力した後でも signal の変更が画面に反映される）。
-> それ以外のキーは従来どおり属性になる。
+> **属性とプロパティの振り分け**（`h` / `tags` / `html` 共通）: 既定では値を**属性**として
+> 設定し（文字列化される）、**DOM プロパティ**へ入れたいときだけ**キー名/属性名に `.` を付ける**。
+> 値の型では判定しない（明示一本）。`h` / `tags` ではキーをクォートする（`{ ".value": v }`）。
+>
+> ```js
+> // 属性（文字列化。null / false は属性を外し、true は空文字）
+> h("a", { href: url, "aria-hidden": hidden });
+> html`<a href=${url}></a>`;
+>
+> // DOM プロパティ。オブジェクト・配列などリッチな値もそのまま渡せる（Custom Element の口）
+> h("x-list", { ".items": items });               // el.items = items.value（シグナル直渡し）
+> html`<x-list .items=${items}></x-list>`;
+> ```
+>
+> フォーム要素の **`value` / `checked` / `selected`** は、属性だと「初期値」しか変えられず
+> ユーザー入力後は属性とプロパティが乖離する。signal の変更を常に画面へ反映したいなら
+> プロパティとして渡す（穴と同じく**シグナル直渡し**でよい）:
+>
+> ```js
+> html`<input .value=${text}>`;            // signal 直渡し。入力後も signal の変更が反映される
+> h("input", { ".value": text });          // h なら `.` 付きキーで（同じく直渡し）
+> html`<input value=${"既定値"}>`;         // 初期値だけ（入力後は更新しても効かない）
+> ```
+>
+> プロパティは値を丸めず素のまま代入する。`null` を空にしたいなら
+> `.value=${() => text.value ?? ""}` のように呼び出し側で処理する（ここは派生なので関数で包む）。
 
 ```js
 const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);
@@ -452,7 +482,7 @@ defineElement("x-list", ({ prop }) => {
   const items = prop("items", []); // リッチな値はプロパティ経由で届く
   return html`<ul>${() => items.value.map((x) => html`<li>${x}</li>`)}</ul>`;
 });
-// h("x-list", { items: () => data.value }) / el.items = [...] で流し込む
+// h("x-list", { ".items": data }) / html`<x-list .items=${data}>` / el.items = [...] で流し込む
 ```
 
 なお setter は signal に入れるだけで、**属性へは書き戻さない**（リフレクトしない）。

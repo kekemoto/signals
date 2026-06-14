@@ -11,7 +11,7 @@
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 
-import { setAttr, toAccessor, toNode } from "./node.js";
+import { resolveSetter, toAccessor, toNode } from "./node.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
@@ -67,17 +67,21 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
       const m = value.match(COMMENT_RE); // 値ぜんぶが1つの穴か
       if (m) {
         const v = values[Number(m[1])];
-        // マーカー入りの属性を先に外す。setAttr が属性に書き直すとは限らない
-        // （プロパティ代入に化けるキーがある）ので、残すとマーカーが本物の属性として生きてしまう。
+        // マーカー入りの属性を先に外す。`.foo` のプロパティ穴は属性に書き戻さないので、
+        // 残すとマーカー（や `.foo` という名の属性）が本物の属性として生きてしまう。
         el.removeAttribute(name);
         if (name.startsWith("on") && typeof v === "function") {
           el.addEventListener(name.slice(2), v as EventListener); // onclick → click
-        } else if (typeof v === "function" || isSignal(v)) {
-          // 関数穴もシグナル直渡しも accessor に揃えて reactive 属性にする
+          continue;
+        }
+        // 属性名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
+        const { key, set } = resolveSetter(name);
+        if (typeof v === "function" || isSignal(v)) {
+          // 関数穴もシグナル直渡しも accessor に揃えて reactive にする
           const acc = toAccessor(v as Signal<unknown> | (() => unknown));
-          effect(() => setAttr(el, name, acc()));
+          effect(() => set(el, key, acc()));
         } else {
-          setAttr(el, name, v); // null/false/真偽の意味を保つ
+          set(el, key, v); // 属性なら null/false/真偽の意味を保つ
         }
       } else if (ATTR_RE.test(value)) {
         // "btn ${...}" のような部分埋め込み
@@ -104,8 +108,11 @@ function read(v: unknown): unknown {
   return typeof v === "function" ? (v as () => unknown)() : isSignal(v) ? v.value : v;
 }
 
-/** "a ${x} b" のように穴を含む属性値を組み立てる。関数 / シグナルが混ざれば reactive。 */
+/** "a ${x} b" のように穴を含む属性値を組み立てる。関数 / シグナルが混ざれば reactive。
+ *  名前が `.foo` ならその文字列を DOM プロパティへ入れる（部分埋め込みは常に文字列になる）。 */
 function wireDynamicAttr(el: Element, name: string, value: string, values: unknown[]): void {
+  const { key, set } = resolveSetter(name);
+  if (key !== name) el.removeAttribute(name); // `.foo` という名のマーカー属性を残さない
   const parts = value.split(ATTR_RE); // [lit, idx, lit, idx, lit, ...]
   const compose = () =>
     parts.map((p, i) => (i % 2 === 0 ? p : String(read(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
@@ -115,8 +122,8 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
     const v = values[Number(p)];
     return typeof v === "function" || isSignal(v);
   });
-  if (reactive) effect(() => setAttr(el, name, compose()));
-  else setAttr(el, name, compose());
+  if (reactive) effect(() => set(el, key, compose()));
+  else set(el, key, compose());
 }
 
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */

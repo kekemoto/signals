@@ -5,20 +5,27 @@
 // 関数の子は Node / 配列も返せる（h("ul", () => list.value.map(...)) — html と同じ範囲再描画）。
 // 行の状態を保ちたいリストは For（key 付き差分）を使う。
 
-import { setAttr, toNode } from "./node.js";
+import { resolveSetter, toNode } from "./node.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
 
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
 type Renderable = string | number | boolean | null | undefined;
 
-/** props の値。関数 / シグナルなら reactive な属性、`onXxx` の関数はイベントハンドラ。 */
+/**
+ * props の値。関数 / シグナルなら reactive、`onXxx` の関数はイベントハンドラ。
+ * キーが `.foo` 形式なら DOM プロパティ代入になり、オブジェクト・配列などリッチな値も渡せる。
+ */
 export type PropValue =
   | Renderable
   | EventListenerOrEventListenerObject
-  | (() => Renderable)
-  | Signal<Renderable>;
+  | object
+  | (() => unknown)
+  | Signal<unknown>;
 
-/** h(tag, props, ...) の props。`onXxx` はイベント、関数 / シグナルは reactive 属性。 */
+/**
+ * h(tag, props, ...) の props。`onXxx` はイベント、`.foo` は DOM プロパティ、
+ * それ以外のキーは属性。関数 / シグナルはいずれも reactive になる。
+ */
 export type Props = Record<string, PropValue>;
 
 /** h(tag, props, child) に渡せる子。関数 / シグナルは reactive な子（Node / 配列も返せる）、配列はフラット化される。 */
@@ -48,12 +55,16 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
     const v = (props as Props)[key];
     if (key.startsWith("on") && typeof v === "function") {
       el.addEventListener(key.slice(2).toLowerCase(), v as EventListener); // onClick → click
-    } else if (typeof v === "function") {
-      effect(() => setAttr(el, key, (v as () => Renderable)())); // reactive な属性（関数）
+      continue;
+    }
+    // キー名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
+    const { key: name, set } = resolveSetter(key);
+    if (typeof v === "function") {
+      effect(() => set(el, name, (v as () => unknown)())); // reactive（関数）
     } else if (isSignal(v)) {
-      effect(() => setAttr(el, key, v.value as Renderable)); // reactive な属性（シグナル直接）
+      effect(() => set(el, name, v.value)); // reactive（シグナル直接）
     } else {
-      setAttr(el, key, v); // 静的な属性
+      set(el, name, v); // 静的
     }
   }
 
