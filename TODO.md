@@ -116,19 +116,6 @@ SVG なし（#9）・`style` オブジェクトなし（#10）・`ref` なし（
 
 ---
 
-## show.ts
-
-### 19. `render` に when の値が渡らない [未実装]
-
-`Show(() => user.value, render)` で render 側がまた `user.value` を読む必要があり、
-null 除去（narrowing）の旨みがない。
-
-**対応案**: Solid と同様、`render(() => value)` の形で「真だった値を返す accessor」を渡す。
-型は `Show<T>(when: () => T, render: (value: () => NonNullable<T>) => Node, ...)` にする。
-引数を増やすだけなので後方互換にできる。
-
----
-
 ## element.ts
 
 ### 21. shadow DOM を選べない [割り切り]

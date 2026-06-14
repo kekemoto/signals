@@ -411,6 +411,20 @@ const view = div(
 );
 ```
 
+`render` は「真だった値を返す accessor」を受け取る（Solid 同様）。`when` が値を返すなら、
+その値が `null` 除去された形で渡るので、render 側で再度 null チェックを書かなくてよい。
+
+```js
+const user = signal(null); // { name } | null
+
+const view = div(
+  Show(
+    () => user.value,                          // 真なら user オブジェクトが渡る
+    (value) => p(() => `ようこそ ${value().name}`), // value() は null でない user
+  ),
+);
+```
+
 ### 使い分け — 関数穴 / `For` / `Show`
 
 **基本は子の関数穴でよい。** `${() => list.value.map(...)}` でリスト、

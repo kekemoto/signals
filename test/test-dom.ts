@@ -586,6 +586,37 @@ test("Show: render が null を返しても内部 effect が dispose される (
   dep.value++;
   assert.equal(runs, 2, "Show: 切替後は内部 effect が dispose され反応しない");
 });
+test("Show: render に真だった値の accessor が渡る (#19)", () => {
+  const { div, span } = tags;
+  const user = signal<{ name: string } | null>(null);
+  const el = mount();
+  el.append(
+    div(
+      Show(
+        () => user.value,
+        // value() は NonNullable に絞られ、null チェックの再記述が要らない
+        (value) => span({ class: "name" }, () => value().name),
+      ),
+    ),
+  );
+  assert.ok(!el.querySelector(".name"), "Show: 初期は null で本体なし");
+  user.value = { name: "ada" };
+  assert.equal(
+    el.querySelector(".name")?.textContent,
+    "ada",
+    "Show: 真になったら value() の値で本体を表示",
+  );
+  // 真のまま値が変わったら（部分木は据え置きのまま）accessor 経由で追従する
+  user.value = { name: "grace" };
+  assert.equal(
+    el.querySelector(".name")?.textContent,
+    "grace",
+    "Show: 真のまま値が変わると accessor が追従する",
+  );
+  // 偽に戻したら本体は消える（accessor から偽値が読まれて落ちたりしない）
+  user.value = null;
+  assert.ok(!el.querySelector(".name"), "Show: 偽に戻すと本体が消える");
+});
 
 // MutationObserver は jsdom でも非同期配信なので、属性変化の反映を待つ用。
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
