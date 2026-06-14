@@ -340,10 +340,12 @@ document.body.append(el);
 > プロパティは値を丸めず素のまま代入する。`null` を空にしたいなら
 > `.value=${() => text.value ?? ""}` のように呼び出し側で処理する（ここは派生なので関数で包む）。
 
-> **`class` / `style` はオブジェクトでも渡せる**（`h` / `tags` / `html` 共通）。`class` は
+> **`class` / `style` はオブジェクトでも渡せる**（`h` / `tags` / `html` 共通）。文字列形と同じく
+> **属性を丸ごと置き換える**もので、オブジェクトはそれを構造的に書けるだけ。`class` は
 > **真のキーだけ**を space 結合し、`style` は **`el.style` へ個別代入**する（キャメルケース
 > `fontSize` も、ハイフン入りの `font-size` / CSS カスタムプロパティ `--gap` も書ける）。
-> 関数 / シグナルで包めば reactive になり、`style` は更新で消えたキーも inline から外れる。
+> 関数 / シグナルで包めば reactive になり、丸ごと置換なので `style` は更新で消えたキーも
+> inline から自動で外れる。
 >
 > ```js
 > h("div", { class: { active: isOn, disabled: false } });   // → class="active"
