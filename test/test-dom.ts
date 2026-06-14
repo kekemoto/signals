@@ -71,6 +71,46 @@ test("h: props 省略で複数子を可変長で渡せる", () => {
   assert.equal(el.querySelectorAll("li").length, 2, "h: props 省略で複数子を可変長で渡せる");
 });
 
+// === class / style のオブジェクト形式（h / html 共通 setAttr）===
+test("class: オブジェクトは真のキーだけ space 結合", () => {
+  const el = h("div", { class: { active: true, disabled: false, big: 1 } });
+  assert.equal(el.getAttribute("class"), "active big", "class: 真のキーだけ");
+});
+test("class: reactive オブジェクトで反転を追従", () => {
+  const on = signal(false);
+  const el = h("div", { class: () => ({ active: on.value, base: true }) });
+  assert.equal(el.getAttribute("class"), "base", "class: 初期は base のみ");
+  on.value = true;
+  assert.equal(el.getAttribute("class"), "active base", "class: 反転で active 追加");
+});
+test("class: 文字列は従来どおり（回帰）", () => {
+  const el = h("div", { class: "box" });
+  assert.equal(el.getAttribute("class"), "box", "class: 文字列はそのまま");
+});
+test("style: オブジェクトは el.style へ個別代入（camelCase / kebab / --custom）", () => {
+  const el = h("div", { style: { color: "red", fontSize: "12px", "--gap": "4px" } });
+  assert.equal(el.style.color, "red", "style: camelCase color");
+  assert.equal(el.style.fontSize, "12px", "style: camelCase fontSize");
+  assert.equal(el.style.getPropertyValue("--gap"), "4px", "style: --custom");
+});
+test("style: reactive で消えたキーは inline からも消える", () => {
+  const big = signal(true);
+  const el = h("div", {
+    style: () => (big.value ? { color: "red", fontSize: "20px" } : { color: "red" }),
+  });
+  assert.equal(el.style.fontSize, "20px", "style: 初期は fontSize あり");
+  big.value = false;
+  assert.equal(el.style.color, "red", "style: color は残る");
+  assert.equal(el.style.fontSize, "", "style: 消えた fontSize は残らない");
+});
+test("style: html の穴でもオブジェクトが効く", () => {
+  const c = signal("red");
+  const el = html`<div style=${() => ({ color: c.value })}></div>` as HTMLElement;
+  assert.equal(el.style.color, "red", "style(html): 初期 color");
+  c.value = "blue";
+  assert.equal(el.style.color, "blue", "style(html): 更新 color");
+});
+
 // === tags ===
 test("tags: 要素と属性と reactive 子", () => {
   const { div, span } = tags;

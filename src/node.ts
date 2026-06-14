@@ -46,6 +46,34 @@ export function toNode(child: unknown): Node {
   return document.createTextNode(String(child));
 }
 
+/** class / style のオブジェクト形式かを見分ける（配列・null・Node は除く）。
+ *  signal / 関数は呼び出し側で値に解決済みのものが届くのでここでは考慮しない。 */
+function isStyleObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Node);
+}
+
+/** `{ active: true, disabled: false }` → `"active"`（真のキーだけを space 結合）。 */
+function classList(obj: Record<string, unknown>): string {
+  let out = "";
+  for (const [k, v] of Object.entries(obj)) if (v) out += (out ? " " : "") + k;
+  return out;
+}
+
+/**
+ * style オブジェクトを `el.style` へ個別代入する。オブジェクトを inline style の唯一の源と
+ * みなし、毎回まず全消去してから再適用する（reactive 更新で消えたキーが残らない）。
+ * キーに `-` を含むものは `setProperty`（`font-size` / `--custom` 両対応）、
+ * 含まないものは JS プロパティ代入（`fontSize`）。null / false は setAttr と同じく不採用。
+ */
+function setStyle(el: HTMLElement, obj: Record<string, unknown>): void {
+  el.style.cssText = "";
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null || v === false) continue;
+    if (k.includes("-")) el.style.setProperty(k, String(v));
+    else (el.style as unknown as Record<string, string>)[k] = String(v);
+  }
+}
+
 /**
  * 属性を設定する。null / false は属性を外し、true は空文字（真偽属性）、それ以外は文字列化。
  * これは全キー共通の規則で、aria-* / data-* も例外にしない（false=削除なので付け外しできる）。
@@ -53,8 +81,17 @@ export function toNode(child: unknown): Node {
  * 文字列 "false" を渡す（文字列はそのまま属性に書かれる）。
  * 属性は文字列しか運べないので、value / checked のように DOM プロパティへ入れたい値や
  * オブジェクト・配列などリッチな値は、属性ではなく `.` 接頭辞のプロパティ穴（setProp）を使う。
+ *
+ * 例外として `style` / `class` はオブジェクトを渡せる（`style: { color: "red" }` /
+ * `class: { active: isOn }`）。この分岐は「丸ごと1穴」の位置でだけ効く（`html` の部分埋め込み
+ * `class="box ${obj}"` は文字列化されるので対象外）。
  */
 export function setAttr(el: Element, key: string, v: unknown): void {
+  if (key === "style" && isStyleObject(v)) {
+    setStyle(el as HTMLElement, v);
+    return;
+  }
+  if (key === "class" && isStyleObject(v)) v = classList(v); // 文字列化して下の属性パスへ
   if (v == null || v === false) el.removeAttribute(key);
   else el.setAttribute(key, v === true ? "" : String(v));
 }

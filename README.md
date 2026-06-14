@@ -340,6 +340,21 @@ document.body.append(el);
 > プロパティは値を丸めず素のまま代入する。`null` を空にしたいなら
 > `.value=${() => text.value ?? ""}` のように呼び出し側で処理する（ここは派生なので関数で包む）。
 
+> **`class` / `style` はオブジェクトでも渡せる**（`h` / `tags` / `html` 共通）。`class` は
+> **真のキーだけ**を space 結合し、`style` は **`el.style` へ個別代入**する（キャメルケース
+> `fontSize` も、ハイフン入りの `font-size` / CSS カスタムプロパティ `--gap` も書ける）。
+> 関数 / シグナルで包めば reactive になり、`style` は更新で消えたキーも inline から外れる。
+>
+> ```js
+> h("div", { class: { active: isOn, disabled: false } });   // → class="active"
+> h("div", { style: { color: "red", fontSize: "12px" } });  // → el.style に個別代入
+> html`<div class=${() => ({ active: on.value })}></div>`;   // reactive（関数で包む）
+> html`<div style=${() => ({ color: c.value })}></div>`;
+> ```
+>
+> オブジェクト形は**穴まるごと1つ**の位置でだけ効く。`html` の部分埋め込み
+> （`class="box ${obj}"`）は従来どおり文字列化されるので、その場合は文字列を渡す。
+
 ```js
 const todos = signal([{ id: 1, text: "牛乳" }, { id: 2, text: "原稿" }]);
 const ok = signal(false);
