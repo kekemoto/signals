@@ -3,7 +3,16 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { batch, cached, createRoot, effect, onCleanup, signal } from "../src/reactive.js";
+import {
+  batch,
+  cached,
+  createRoot,
+  effect,
+  getOwner,
+  onCleanup,
+  runWithOwner,
+  signal,
+} from "../src/reactive.js";
 
 test("onCleanup: 再実行直前に前回分が走る", () => {
   const s = signal(0);
@@ -228,6 +237,107 @@ test("createRoot 直下での signal 読みは追跡されない", () => {
   });
   s.value = 1; // 追跡されていなければ rootRuns は増えない
   assert.equal(rootRuns, 1, "createRoot 直下の読みは未追跡");
+});
+
+test("getOwner: effect の中では owner、外では null", () => {
+  assert.equal(getOwner(), null, "トップレベルでは owner なし");
+  let inside: unknown = "unset";
+  const d = effect(() => {
+    inside = getOwner();
+  });
+  assert.notEqual(inside, null, "effect 内では owner がある");
+  d();
+});
+
+test("runWithOwner: 非同期文脈で作った effect が元の親と一緒に畳まれる", () => {
+  const s = signal(0);
+  let runs = 0;
+  let deferred!: () => void;
+  // setTimeout 相当: owner を掴んでおき、後からその owner 下で effect を作る。
+  const disposeParent = effect(() => {
+    const owner = getOwner();
+    deferred = () => {
+      runWithOwner(owner, () => {
+        effect(() => {
+          s.value;
+          runs++;
+        });
+      });
+    };
+  });
+  deferred(); // 「非同期コールバック」を発火 → 親にぶら下がる子 effect を作る
+  assert.equal(runs, 1, "復帰先で作った effect は初回実行");
+  s.value = 1;
+  assert.equal(runs, 2, "依存変化で反応する");
+  disposeParent(); // 親を畳む → 復帰して作った子も連鎖 dispose
+  s.value = 2;
+  assert.equal(runs, 2, "親 dispose で非同期生成の effect も止まる（孤児化しない）");
+});
+
+test("runWithOwner: owner=null なら追跡されない独立 effect になる", () => {
+  const s = signal(0);
+  let runs = 0;
+  const d = runWithOwner(null, () => {
+    return effect(() => {
+      s.value;
+      runs++;
+    });
+  });
+  assert.equal(runs, 1, "初回実行");
+  s.value = 1;
+  assert.equal(runs, 2, "owner なしでも effect 自体は反応する");
+  d();
+});
+
+test("runWithOwner: 観測(activeComputation)は復帰しない（依存を張らない）", () => {
+  const outer = signal(0);
+  let outerRuns = 0;
+  const owner = createRoot((dispose) => {
+    const o = getOwner();
+    void dispose;
+    return o;
+  });
+  effect(() => {
+    outerRuns++;
+    // この effect の最中に runWithOwner で別 owner に切り替えて signal を読む。
+    // owner は差し替わるが観測は止まるので、outer はこの effect の依存にならない。
+    runWithOwner(owner, () => {
+      outer.value;
+    });
+  });
+  assert.equal(outerRuns, 1, "初回実行");
+  outer.value = 1;
+  assert.equal(outerRuns, 1, "runWithOwner 内の読みは依存にならない");
+});
+
+test("runWithOwner: dispose 済み owner には再アタッチしない（dev 警告）", () => {
+  const dev = typeof process === "undefined" || process.env.NODE_ENV !== "production";
+  const s = signal(0);
+  let owner!: ReturnType<typeof getOwner>;
+  const disposeRoot = createRoot((dispose) => {
+    owner = getOwner();
+    return dispose;
+  });
+  disposeRoot(); // owner を畳んでおく
+
+  const orig = console.warn;
+  let warns = 0;
+  console.warn = () => {
+    warns++;
+  };
+  let runs = 0;
+  try {
+    runWithOwner(owner, () => {
+      effect(() => {
+        s.value;
+        runs++;
+      });
+    });
+  } finally {
+    console.warn = orig;
+  }
+  assert.equal(warns, dev ? 1 : 0, "dispose 済み owner で dev 警告");
+  assert.equal(runs, 1, "孤児(owner なし)として実行はされる");
 });
 
 test("dispose: flush 中に先行 effect が後続を dispose したら後続は復活しない (#29)", () => {
