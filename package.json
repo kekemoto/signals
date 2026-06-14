@@ -1,7 +1,7 @@
 {
   "name": "@kekemoto/signals",
   "version": "0.1.0",
-  "description": "最小リアクティブシステム（signal / effect / memo）と DOM ユーティリティ",
+  "description": "最小リアクティブシステム（signal / effect / cached）と DOM ユーティリティ",
   "type": "module",
   "sideEffects": false,
   "types": "./dist/src/index.d.ts",

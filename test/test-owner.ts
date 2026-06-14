@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { batch, createRoot, effect, memo, onCleanup, signal } from "../src/reactive.js";
+import { batch, cached, createRoot, effect, onCleanup, signal } from "../src/reactive.js";
 
 test("onCleanup: 再実行直前に前回分が走る", () => {
   const s = signal(0);
@@ -82,36 +82,67 @@ test("owner: 親再実行で前回の子が畳まれる", () => {
   assert.equal(childRuns, 3, "生きている子は1つだけ（リークなし）");
 });
 
-test("memo: effect 内で作った memo は親と一緒に畳まれる", () => {
+test("cached: effect 内で作った cached は親と一緒に畳まれる", () => {
   const a = signal(1);
   let calc = 0;
-  let read;
   const disposeParent = effect(() => {
-    const m = memo(() => {
+    const m = cached(() => {
       calc++;
       return a.value * 2;
     });
-    read = m();
+    m();
   });
-  assert.ok(calc === 1 && read === 2, "memo 初期計算");
-  disposeParent(); // 親 effect ごと畳む → memo の内部 effect も停止
+  assert.equal(calc, 1, "cached 初期計算");
+  disposeParent(); // 親 effect ごと畳む → cached の内部 effect も停止
   a.value = 5; // 停止しているので再計算されないはず
-  assert.equal(calc, 1, "親 dispose で memo も停止");
+  assert.equal(calc, 1, "親 dispose で cached も停止");
 });
 
-test("memo: トップレベル memo は read.dispose で止められる", () => {
+test("cached: トップレベルは createRoot で止められる", () => {
   const a = signal(1);
   let calc = 0;
-  const m = memo(() => {
-    calc++;
-    return a.value;
+  let m!: () => number;
+  const disposeRoot = createRoot((dispose) => {
+    m = cached(() => {
+      calc++;
+      return a.value * 2;
+    });
+    return dispose;
   });
-  m();
+  assert.equal(calc, 1, "生成時に1回計算");
   a.value = 2;
-  assert.equal(calc, 2, "dispose 前は追従");
-  m.dispose();
+  assert.equal(calc, 2, "入力変化で再計算（eager）");
+  assert.equal(m(), 4, "最新値");
+  disposeRoot();
   a.value = 3;
-  assert.equal(calc, 2, "read.dispose 後は止まる");
+  assert.equal(calc, 2, "createRoot の dispose 後は止まる");
+  assert.equal(m(), 4, "停止後は古い値のまま");
+});
+
+test("cached: オーナーがないと dev 警告（createRoot / effect 内では出ない）", () => {
+  // dev ビルドでだけ警告する。テストは NODE_ENV 未設定 = dev なので発火するが、
+  // production で実行された場合も落ちないよう期待値を dev フラグで揃える。
+  const dev = typeof process === "undefined" || process.env.NODE_ENV !== "production";
+  const a = signal(1);
+  const orig = console.warn;
+  let warns = 0;
+  console.warn = () => {
+    warns++;
+  };
+  try {
+    cached(() => a.value); // オーナーなし（孤児）→ 警告
+    assert.equal(warns, dev ? 1 : 0, "オーナーなしで警告");
+    createRoot((dispose) => {
+      cached(() => a.value); // createRoot がオーナー → 警告なし
+      dispose();
+    });
+    effect(() => {
+      cached(() => a.value); // 親 effect がオーナー → 警告なし
+    })();
+    assert.equal(warns, dev ? 1 : 0, "オーナーがあれば追加の警告は出ない");
+  } finally {
+    console.warn = orig;
+  }
 });
 
 test("onCleanup と batch の併用", () => {

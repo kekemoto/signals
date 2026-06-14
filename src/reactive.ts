@@ -4,19 +4,21 @@
 //   signal    : 値を持ち、読まれたら依存登録・書かれたら購読者へ通知するセル
 //   effect    : 依存が変わると再実行される副作用。dispose 関数を返す
 //   batch     : 複数の変更を1回の再実行にまとめる
-//   memo      : 重い派生を1回だけ計算して共有・キャッシュする（signal+effect の合成）
 //   onCleanup : effect の後始末を登録する。再実行直前・dispose時に呼ばれる
+//   cached    : 派生関数を計算共有＋value-cutoff 付きにする糖衣（読み口は () のまま）
 //
-// 派生値は基本「ただの関数」で書く:
+// 派生値は「ただの関数」で書く:
 //   const fullName = () => first.value + " " + last.value;
 //   effect(() => console.log(fullName()));   // first / last の変化に反応する
-// 関数は中間ノードを作らず、読まれた瞬間に最新値を計算するのでグリッチが起きない。
-// 唯一の弱点はメモ化されないこと。重い派生を複数箇所で読むホットな場面だけ memo に
-// 差し替える（呼び出しは fullName() のまま）。memo は計算の共有と value-cutoff を得る
-// 代わり、eager（未使用でも計算する）で、生入力と memo を同じ effect で読むと二重実行になる。
+// 関数は中間ノードを作らず、読まれた瞬間に最新値を計算するので、メモ化用の専用ノードは
+// 持たない（lazy・グリッチなしが素のまま得られる）。重い派生を複数箇所で読むので計算を
+// 共有したい・入力は変わるが結果が同じなら下流を止めたい（value-cutoff）といった場面だけ、
+// 派生関数を cached() で包む（中身は signal + effect の薄い糖衣で、読み口は () のまま）:
+//   const area = cached(() => w.value * h.value);
+//   // area() を読む（計算は入力変化ごとに1回・複数読みでも共有・結果同値なら下流据え置き）
 //
 // 所有ツリー（ownership）:
-//   effect / memo を作ると、いま実行中の effect の「子」として自動登録される。
+//   effect を作ると、いま実行中の effect の「子」として自動登録される。
 //   - 親が再実行されると、前回作った子は自動で dispose される（作り直しでリークしない）
 //   - 親を dispose すると、子も連鎖して畳まれる
 //   なので dispose を手で持ち回る必要はほぼなくなり、ツリーの根（トップレベルの
@@ -29,10 +31,9 @@
 // 既知の限界（最小実装ゆえの割り切り）:
 //   - effect が自分の依存を書き換え続ける無限ループは、flush が収束しないと検出して
 //     例外を投げる（FLUSH_LIMIT 世代まで）。数パスで収束する正当な自己更新は許す。
-//   - トップレベル（どの effect の中でもない場所）で作った effect / memo は親がいない
-//     ので自動では畳まれない。戻り値（effect）や read.dispose（memo）で手動解放する。
-//     これらを1か所にまとめたいなら createRoot で囲み、返ってくる dispose を1つ握れば
-//     配下ごと畳める。
+//   - トップレベル（どの effect の中でもない場所）で作った effect は親がいないので
+//     自動では畳まれない。戻り値（dispose）で手動解放する。これらを1か所にまとめたい
+//     なら createRoot で囲み、返ってくる dispose を1つ握れば配下ごと畳める。
 // =============================================================================
 
 // --- 型 ---------------------------------------------------------------------
@@ -43,20 +44,13 @@ export interface Signal<T> {
   peek(): T;
 }
 
-/** `memo` の読み口。関数として呼ぶと最新のキャッシュ値を返す。 */
-export interface Memo<T> {
-  (): T;
-  /** 内部 effect を解放する（トップレベル memo の明示停止用）。 */
-  dispose: () => void;
-}
-
-// 購読者リスト（ある signal / key を読んでいる computation の集合）。
+// 購読者リスト（ある signal を読んでいる computation の集合）。
 type Subscribers = Set<Computation>;
 
 // 所有ツリーのノード。effect の本体(run)と createRoot の根が共通で持つ。
 interface Owner {
   deps: Set<Subscribers>; // 自分が購読している購読者リスト（古い依存の掃除用）
-  children: Set<Computation>; // 子ノード（自分の中で作られた effect / memo）
+  children: Set<Computation>; // 子ノード（自分の中で作られた effect）
   cleanups: Array<() => void>; // onCleanup で登録された後始末
   owner: Owner | null; // 作成時の親
 }
@@ -74,6 +68,12 @@ let batchDepth = 0; // batch() のネスト深さ
 let flushing = false; // いま flush 中か（再入を1つに束ねる）
 const pendingEffects = new Set<Computation>(); // バッチ終了時にまとめて走らせる effect
 const FLUSH_LIMIT = 1000; // 1回の flush で許す「世代」数（暴走検出の閾値）
+
+// dev ビルドでだけ出す注意喚起（cached の孤児検出など）を有効にするか。
+// バンドラは process.env.NODE_ENV を置換するので prod では false に畳まれ警告は消える。
+// 素のブラウザ global ビルドでは process 不在 → false（＝黙る）。
+const DEV =
+  typeof process !== "undefined" && process.env != null && process.env.NODE_ENV !== "production";
 
 // 溜まった effect を実行する。空になるまで「世代」単位で繰り返す（while ループ）。
 //
@@ -256,7 +256,7 @@ export function onCleanup(fn: () => void): void {
 // ときに使う（読んだ signal が変わっても effect は再実行されない）。
 // 単一セルなら .peek() で足りるが、関数呼び出しをまたいで複数の signal を素通しで
 // 読むような場面はこちらが素直。所有ツリー（currentOwner）は触らないので、untrack の
-// 中で作った effect / memo は従来どおり現在のスコープにぶら下がる。
+// 中で作った effect は従来どおり現在のスコープにぶら下がる。
 export function untrack<T>(fn: () => T): T {
   const prev = activeComputation;
   activeComputation = null;
@@ -269,7 +269,7 @@ export function untrack<T>(fn: () => T): T {
 
 // --- createRoot -------------------------------------------------------------
 // 所有ツリーの「独立した根」を作る。fn には dispose 関数が渡され、root の中で作った
-// effect / memo はこの根にぶら下がる。dispose を呼ぶと、その配下をまとめて畳める。
+// effect はこの根にぶら下がる。dispose を呼ぶと、その配下をまとめて畳める。
 // 親の所有ツリーには繋がない（＝自動では畳まれない、明示 dispose 用の独立スコープ）。
 // リストの行のように「個別に生かしたり消したりしたい単位」を包むのに使う。
 export function createRoot<T>(fn: (dispose: () => void) => T): T {
@@ -286,28 +286,41 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
   }
 }
 
-// --- memo -------------------------------------------------------------------
-// 重い派生を「1回だけ計算して共有・入力が変わるまでキャッシュ」したいとき。
-// 中身は signal(結果置き場) + effect(依存が変われば計算して書き込む) の合成。
-// 読み口は派生関数と同じ関数なので、() => ... を memo(() => ...) に差し替えるだけ。
-//   - 計算の共有: 何箇所から読んでも、入力変化ごとに1回しか計算しない
+// --- cached -----------------------------------------------------------------
+// 重い派生を「1回だけ計算して共有・入力が変わるまでキャッシュ」したいときに包む糖衣。
+// 中身は signal（結果置き場）+ effect（依存が変われば計算して書き込む）の合成にすぎず、
+// 読み口は素の派生関数とまったく同じ () => T。だから「まず関数で書き、ホットになったら
+// 包む」が最小差分でできる（呼び出し側 foo() は変えなくてよい）:
+//   const area = () => w.value * h.value;          // 素の派生
+//   const area = cached(() => w.value * h.value);  // ホット化（area() は無変更）
+//   - 計算の共有 : 何箇所から読んでも、入力変化ごとに1回しか計算しない
 //   - value-cutoff: 結果が前と同じなら（中間 signal の Object.is で）下流は走らない
-//   - 代償: eager（未使用でも計算する）/ 生入力と同じ effect で読むと二重実行
-// 内部 effect は所有ツリーに乗るので、effect の中で作った memo は親と一緒に畳まれる。
-// トップレベルで作った memo を明示的に止めたいときだけ read.dispose() を使う。
-export function memo<T>(fn: () => T): Memo<T> {
-  // effect は生成時に同期実行される（下の effect(...) が返る前に1度走る）。
-  // そこで初回は計算結果でそのまま signal を作り、2回目以降だけ書き込む。
-  // こうすると cache は常に T で持てる（undefined を T に偽る as キャストが要らない）し、
-  // 初期値 undefined → 初回結果 の余計な1段差（spurious cutoff）も生じない。
-  let cache!: Signal<T>;
-  const disposeMemo = effect(() => {
+//   - 代償        : eager（未使用でも計算する）/ 生入力と同じ effect で読むと二重実行
+// 解放は effect と同じ所有ツリー任せ: effect の中で作れば親と一緒に畳まれ、トップレベルで
+// 明示的に止めたいときは createRoot で囲んで返り値の dispose を握る（read口にプロパティは
+// 生やさない）。追跡せずに今の値だけ読みたい（peek 相当）ときは untrack(area) を使う。
+//
+// cached は dispose ハンドルを返さないので、オーナー（囲む effect / createRoot）が無い場所で
+// 作ると内部 effect が孤児になり、回収する手段がないまま入力 signal にぶら下がり続ける
+// （＝リーク）。dev ビルドではこれを console.warn で知らせる（prod では DEV が false に畳まれ
+// 無音）。アプリ寿命の派生など意図的に永続させたいときは createRoot で囲めば警告は消える。
+export function cached<T>(fn: () => T): () => T {
+  if (DEV && currentOwner === null) {
+    console.warn(
+      "cached: オーナーがありません。内部 effect が孤児になり自動解放されません" +
+        "（入力 signal にぶら下がり続けてリークします）。effect の中で作るか createRoot で囲んでください。",
+    );
+  }
+  // effect は生成時に同期実行される（下の effect(...) が返る前に1度走る）。そこで初回は
+  // 計算結果でそのまま signal を作り、2回目以降だけ書き込む。こうすると cell は常に T で
+  // 持てる（undefined を T に偽る as キャストが要らない）し、初期値 undefined → 初回結果
+  // の余計な1段差（spurious cutoff）も生じない。
+  let cell: Signal<T> | undefined;
+  effect(() => {
     const next = fn(); // 依存が変わるたび計算
-    if (cache)
-      cache.value = next; // 2回目以降: 書き込み（Object.is で下流を間引く）
-    else cache = signal(next); // 初回: 結果で signal を作る
+    if (cell)
+      cell.value = next; // 2回目以降: 書き込み（Object.is で下流を間引く）
+    else cell = signal(next); // 初回: 結果で signal を作る
   });
-  const read = (() => cache.value) as Memo<T>; // 読み口（fullName() のように呼ぶ）
-  read.dispose = disposeMemo; // 任意: 内部 effect の解放用
-  return read;
+  return () => cell!.value; // 読み口（素の派生関数と同じく area() で読む）
 }
