@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { batch, cached, effect, isSignal, signal, untrack } from "../src/reactive.js";
+import { batch, cached, createRoot, effect, isSignal, signal, untrack } from "../src/reactive.js";
 import { store } from "../src/store.js";
 
 test("signal の基本", () => {
@@ -105,70 +105,79 @@ test("派生は関数で書く（複数読みでも値は整合）", () => {
 });
 
 test("cached: 計算共有とキャッシュ", () => {
-  const a = signal(1),
-    b = signal(2);
-  let calc = 0;
-  const sum = cached(() => {
-    calc++;
-    return a.value + b.value;
+  // createRoot で囲む = オーナーを与える（孤児 dev 警告を出さない）。
+  createRoot(() => {
+    const a = signal(1),
+      b = signal(2);
+    let calc = 0;
+    const sum = cached(() => {
+      calc++;
+      return a.value + b.value;
+    });
+    assert.equal(calc, 1, "生成時に1回計算（eager）");
+    assert.equal(sum(), 3, "初期値");
+    assert.equal(sum(), 3, "複数読みでも");
+    assert.equal(calc, 1, "複数読みでも再計算なし（共有）");
+    a.value = 10;
+    assert.equal(sum(), 12, "入力変化で再計算（値）");
+    assert.equal(calc, 2, "入力変化で再計算（回数）");
   });
-  assert.equal(calc, 1, "生成時に1回計算（eager）");
-  assert.equal(sum(), 3, "初期値");
-  assert.equal(sum(), 3, "複数読みでも");
-  assert.equal(calc, 1, "複数読みでも再計算なし（共有）");
-  a.value = 10;
-  assert.equal(sum(), 12, "入力変化で再計算（値）");
-  assert.equal(calc, 2, "入力変化で再計算（回数）");
 });
 
 test("cached: value-cutoff（結果が同じなら下流は走らない）", () => {
-  const w = signal(2),
-    h = signal(3);
-  const area = cached(() => w.value * h.value);
-  let downstream = 0;
-  effect(() => {
-    area();
-    downstream++;
+  createRoot(() => {
+    const w = signal(2),
+      h = signal(3);
+    const area = cached(() => w.value * h.value);
+    let downstream = 0;
+    effect(() => {
+      area();
+      downstream++;
+    });
+    assert.equal(area(), 6, "派生セル 初期値");
+    assert.equal(downstream, 1, "下流 初期");
+    // 入力は変わるが面積は同じ（2*3 → 6*1）→ cutoff で下流は走らない。
+    // batch で1回の再計算にまとめ、途中の別の値を経由させない。
+    batch(() => {
+      w.value = 6;
+      h.value = 1;
+    });
+    assert.equal(area(), 6, "面積は同じ");
+    assert.equal(downstream, 1, "結果不変なら下流据え置き（cutoff）");
+    h.value = 2;
+    assert.equal(area(), 12, "面積が変化");
+    assert.equal(downstream, 2, "結果変化で下流実行");
   });
-  assert.equal(area(), 6, "派生セル 初期値");
-  assert.equal(downstream, 1, "下流 初期");
-  // 入力は変わるが面積は同じ（2*3 → 6*1）→ cutoff で下流は走らない。
-  // batch で1回の再計算にまとめ、途中の別の値を経由させない。
-  batch(() => {
-    w.value = 6;
-    h.value = 1;
-  });
-  assert.equal(area(), 6, "面積は同じ");
-  assert.equal(downstream, 1, "結果不変なら下流据え置き（cutoff）");
-  h.value = 2;
-  assert.equal(area(), 12, "面積が変化");
-  assert.equal(downstream, 2, "結果変化で下流実行");
 });
 
 test("cached: 生入力と同じ effect で読んでも値は整合（read口は素の関数）", () => {
-  const a = signal(1);
-  const double = cached(() => a.value * 2);
-  let seen: [number, number] = [0, 0];
-  effect(() => {
-    seen = [a.value, double()]; // 生入力と cached を同じ effect で読む
+  createRoot(() => {
+    const a = signal(1);
+    const double = cached(() => a.value * 2);
+    let seen: [number, number] = [0, 0];
+    effect(() => {
+      seen = [a.value, double()]; // 生入力と cached を同じ effect で読む
+    });
+    assert.deepEqual(seen, [1, 2], "初回の値");
+    a.value = 5;
+    assert.deepEqual(seen, [5, 10], "変更後の値も整合");
   });
-  assert.deepEqual(seen, [1, 2], "初回の値");
-  a.value = 5;
-  assert.deepEqual(seen, [5, 10], "変更後の値も整合");
 });
 
 test("cached: untrack で追跡せずに読める（peek 相当）", () => {
-  const a = signal(1);
-  const double = cached(() => a.value * 2);
-  let runs = 0;
-  effect(() => {
-    runs++;
-    untrack(double); // 値は使わず、追跡だけ止めて読む
+  createRoot(() => {
+    const a = signal(1);
+    const double = cached(() => a.value * 2);
+    let runs = 0;
+    effect(() => {
+      runs++;
+      untrack(double); // 値は使わず、追跡だけ止めて読む
+    });
+    assert.equal(runs, 1, "初回");
+    a.value = 9;
+    assert.equal(runs, 1, "untrack 読みなので入力変化でも再実行しない");
+    assert.equal(double(), 18, "値自体は最新（eager に更新済み）");
   });
-  assert.equal(runs, 1, "初回");
-  a.value = 9;
-  assert.equal(runs, 1, "untrack 読みなので入力変化でも再実行しない");
-  assert.equal(double(), 18, "値自体は最新（eager に更新済み）");
 });
 
 test("ネストした batch", () => {
