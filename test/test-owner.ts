@@ -439,8 +439,27 @@ test("onError: ハンドラ自身の例外は1つ上のバウンダリへ送る"
   assert.equal((outer[0] as Error).message, "from-handler");
 });
 
-test("onError: スコープ外で呼んでも無害（無視される）", () => {
-  assert.doesNotThrow(() => onError(() => {}));
+test("onError: オーナーがないと dev 警告（登録されず無視される）", () => {
+  // cached と同様、dev ビルドでだけ警告する。NODE_ENV 未設定 = dev で発火。
+  const dev = typeof process === "undefined" || process.env.NODE_ENV !== "production";
+  const orig = console.warn;
+  let warns = 0;
+  console.warn = () => {
+    warns++;
+  };
+  try {
+    assert.doesNotThrow(() => onError(() => {})); // オーナーなし → 無視（警告のみ）
+    assert.equal(warns, dev ? 1 : 0, "オーナーなしで警告");
+    createRoot(() => {
+      onError(() => {}); // createRoot がオーナー → 警告なし
+    });
+    effect(() => {
+      onError(() => {}); // 親 effect がオーナー → 警告なし
+    })();
+    assert.equal(warns, dev ? 1 : 0, "オーナーがあれば追加の警告は出ない");
+  } finally {
+    console.warn = orig;
+  }
 });
 
 test("dispose: flush 中に先行 effect が後続を dispose したら後続は復活しない (#29)", () => {

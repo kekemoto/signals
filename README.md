@@ -184,8 +184,9 @@ effect(() => {
 いまのスコープ（`effect` / `createRoot` の根）に **エラーバウンダリ** を張る。このスコープと
 その配下の `effect` が投げた例外は、所有ツリーを根に向かって辿り、最初に見つかった `onError`
 ハンドラへ届く。どのスコープにもハンドラが無ければ、従来どおり例外は投げ直される
-（`signal` を書いた側へ飛ぶ）。`onCleanup` と同じく `effect` の再実行ごとに張り直され、
-スコープの外で呼ぶと無視される。
+（`signal` を書いた側へ飛ぶ）。`onCleanup` と同じく `effect` の再実行ごとに張り直される。
+オーナーの無いトップレベルで呼ぶとハンドラは登録されず（バウンダリを張れず）、dev ビルドでは
+警告が出る — `effect` の中か `createRoot` の中で呼ぶこと。
 
 ```js
 import { createRoot, effect, onError, signal } from "@kekemoto/signals";

@@ -288,15 +288,26 @@ export function onCleanup(fn: () => void): void {
 // 現在のスコープ（effect / createRoot の根）に「エラーバウンダリ」を張る。このスコープと
 // その配下の effect が投げた例外は、所有ツリーを根へ向かって辿り、最初に見つかった onError
 // ハンドラへ届く（onCleanup と同じく、再実行ごとに張り直される）。どのスコープにも
-// ハンドラが無ければ従来どおり例外は投げ直される。effect の外で呼んでも何も起きない。
+// ハンドラが無ければ従来どおり例外は投げ直される。
 //   createRoot(() => {
 //     onError((e) => console.error("UI でエラー:", e)); // アプリ全体のバウンダリ
 //     effect(() => { ...投げうる処理... });
 //   });
 // 注意: ハンドラは「壊れた effect の再実行を肩代わりする」ものではなく、例外を1か所に集める
 // 通知口。状態を安全な値へ戻すなどの回復はハンドラ内で明示的に行う。
+//
+// オーナーが無い場所（トップレベル）で呼ぶと、ハンドラは登録先が無く捨てられる＝バウンダリを
+// 張ったつもりで例外を捕捉できない静かな footgun になる（onCleanup の「何もしない」と違い、
+// 期待と挙動がずれる）。cached と同じく dev ビルドではこれを console.warn で知らせる。
 export function onError(handler: (err: unknown) => void): void {
-  if (currentOwner) currentOwner.errors.push(handler);
+  if (currentOwner) {
+    currentOwner.errors.push(handler);
+  } else if (DEV) {
+    console.warn(
+      "onError: オーナーがありません。ハンドラは登録されず例外を捕捉できません" +
+        "（effect の中で呼ぶか createRoot で囲んでください）。",
+    );
+  }
 }
 
 // --- untrack ----------------------------------------------------------------
