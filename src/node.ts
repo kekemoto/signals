@@ -145,3 +145,25 @@ export function resolveSetter(name: string): {
 } {
   return name.startsWith(".") ? { key: name.slice(1), set: setProp } : { key: name, set: setAttr };
 }
+
+/**
+ * 単一の値を1つの prop / 属性として要素へ配線する。h の props と html の「値ぜんぶが1つの穴」の
+ * 属性で共用し、「onXxx → イベント / `.foo` → プロパティ / それ以外 → 属性」の規則を1か所に揃える。
+ * 関数 / シグナル直渡しは accessor に正規化して effect で reactive にし、それ以外は一度だけ設定する。
+ * （html の `class="box ${x}"` のような部分埋め込みは値を文字列合成する別処理なので対象外。）
+ */
+export function bindProp(el: Element, name: string, v: unknown): void {
+  const event = resolveEvent(name, v);
+  if (event) {
+    el.addEventListener(event, v as EventListener); // onClick → click
+    return;
+  }
+  // キー名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
+  const { key, set } = resolveSetter(name);
+  if (typeof v === "function" || isSignal(v)) {
+    const acc = toAccessor(v as Signal<unknown> | (() => unknown)); // 関数穴も signal 直渡しも揃える
+    effect(() => set(el, key, acc()));
+  } else {
+    set(el, key, v); // 静的（null/false/真偽の意味は setAttr が保つ）
+  }
+}

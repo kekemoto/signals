@@ -48,7 +48,8 @@ export interface Signal<T> {
 type Subscribers = Set<Computation>;
 
 // 所有ツリーのノード。effect の本体(run)と createRoot の根が共通で持つ。
-interface Owner {
+// getOwner / runWithOwner では中身を触らない不透明ハンドルとして扱う。
+export interface Owner {
   deps: Set<Subscribers>; // 自分が購読している購読者リスト（古い依存の掃除用）
   children: Set<Computation>; // 子ノード（自分の中で作られた effect）
   cleanups: Array<() => void>; // onCleanup で登録された後始末
@@ -280,6 +281,63 @@ export function createRoot<T>(fn: (dispose: () => void) => T): T {
   activeComputation = null; // 根の直下での生読みは追跡しない（untrack）
   try {
     return fn(() => dispose(owner));
+  } finally {
+    currentOwner = prevOwner;
+    activeComputation = prevObserver;
+  }
+}
+
+// --- rooted -----------------------------------------------------------------
+// createRoot の「中で値を1つ作り、その根の dispose も一緒に取り出す」定型を括り出した
+// 内部ヘルパー。createRoot は引数のコールバックで dispose を受けるため、生成物（node など）と
+// dispose の両方を外に出すには「外で宣言 → コールバック内で代入」になり non-null assertion が
+// 要る。その footgun を1か所に閉じ込め、For / Show のような「作って後で畳む単位」を
+// `const { value, dispose } = rooted(fn)` と宣言的に書けるようにする。公開はしない。
+export function rooted<T>(fn: () => T): { value: T; dispose: () => void } {
+  let value!: T;
+  let dispose!: () => void;
+  createRoot((d) => {
+    dispose = d;
+    value = fn();
+  });
+  return { value, dispose };
+}
+
+// --- getOwner / runWithOwner ------------------------------------------------
+// いまの所有ツリーの親（実行中の effect か createRoot の根）を取り出す。effect の
+// 外・トップレベルでは null。setTimeout / await / fetch のコールバックに入る前に
+// 掴んでおき、コールバックの中で runWithOwner に渡して元のツリーへ復帰するのに使う。
+export function getOwner(): Owner | null {
+  return currentOwner;
+}
+
+// owner を「現在の親」にして fn を実行する。非同期コールバックの中から元の所有ツリーへ
+// 復帰し、そこで作った effect / cached を親にぶら下げたい（＝親 dispose で一緒に畳みたい）
+// ときに使う。これがないと setTimeout / await 後に作る effect は親を失って孤児になり、
+// 入力 signal にぶら下がり続けてリークする。
+//
+// 依存追跡(activeComputation)は止める: 非同期文脈には「いま依存を集めている effect」は
+// 存在しないので、owner だけ差し替えて観測は張らない（untrack と同様）。owner は所有
+// （誰の子か）を、activeComputation は観測（誰の依存か）を表す直交した軸で、復帰したいのは
+// 前者だけ。
+//
+// dispose 済みの owner に再アタッチすると死んだ枝にぶら下げてしまい、二度と回収されない
+// （静かなリーク）。これは弾いて owner なし（孤児）として実行し、dev では警告する。
+export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
+  if (owner && (owner as Computation).disposed) {
+    if (DEV) {
+      console.warn(
+        "runWithOwner: dispose 済みの owner が渡されました。再アタッチせず owner なしで実行します。",
+      );
+    }
+    owner = null;
+  }
+  const prevOwner = currentOwner;
+  const prevObserver = activeComputation;
+  currentOwner = owner;
+  activeComputation = null; // 非同期文脈では依存を張らない（untrack 相当）
+  try {
+    return fn();
   } finally {
     currentOwner = prevOwner;
     activeComputation = prevObserver;

@@ -5,8 +5,8 @@
 // 関数の子は Node / 配列も返せる（h("ul", () => list.value.map(...)) — html と同じ範囲再描画）。
 // 行の状態を保ちたいリストは For（key 付き差分）を使う。
 
-import { isRef, resolveEvent, resolveSetter, toNode } from "./node.js";
-import { effect, isSignal, type Signal } from "./reactive.js";
+import { bindProp, isRef, toNode } from "./node.js";
+import { isSignal, type Signal } from "./reactive.js";
 
 /** reactive な属性値・子テキストとして描画できるプリミティブ。 */
 type Renderable = string | number | boolean | null | undefined;
@@ -52,28 +52,14 @@ export function h(tag: string, ...args: [Props, ...Child[]] | Child[]): HTMLElem
   const props = hasProps ? (args[0] as Props) : null;
   const children = hasProps ? args.slice(1) : args;
 
-  let ref: ((el: Element) => void) | null = null; // 子の配線後にまとめて呼ぶ
-  for (const key in props || {}) {
-    const v = (props as Props)[key];
-    if (isRef(key, v)) {
-      ref = v; // 要素が完成してから渡す（下で children append 後に呼ぶ）
-      continue;
+  // onXxx=イベント / `.foo`=プロパティ / それ以外=属性。配線規則は node.ts に集約（html と共用）。
+  // ref だけは要素が完成してから呼びたいので退避し、children append 後にまとめて実行する。
+  let ref: ((el: Element) => void) | null = null;
+  if (props)
+    for (const [key, v] of Object.entries(props)) {
+      if (isRef(key, v)) ref = v;
+      else bindProp(el, key, v);
     }
-    const event = resolveEvent(key, v);
-    if (event) {
-      el.addEventListener(event, v as EventListener); // onClick → click
-      continue;
-    }
-    // キー名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
-    const { key: name, set } = resolveSetter(key);
-    if (typeof v === "function") {
-      effect(() => set(el, name, (v as () => unknown)())); // reactive（関数）
-    } else if (isSignal(v)) {
-      effect(() => set(el, name, v.value)); // reactive（シグナル直接）
-    } else {
-      set(el, name, v); // 静的
-    }
-  }
 
   // 子はネストしていてもフラット化し、toNode で変換する（html と同じ挙動）。
   for (const child of (children as unknown[]).flat(Infinity) as Child[]) {

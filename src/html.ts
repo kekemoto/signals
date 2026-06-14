@@ -11,8 +11,8 @@
 //   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 
-import { isRef, resolveEvent, resolveSetter, toAccessor, toNode } from "./node.js";
-import { effect, isSignal, type Signal } from "./reactive.js";
+import { bindProp, isRef, resolveSetter, toNode } from "./node.js";
+import { effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -68,28 +68,17 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
       const { name, value } = attr;
       const m = value.match(COMMENT_RE); // 値ぜんぶが1つの穴か
       if (m) {
-        const v = values[Number(m[1])];
         // マーカー入りの属性を先に外す。`.foo` のプロパティ穴は属性に書き戻さないので、
         // 残すとマーカー（や `.foo` という名の属性）が本物の属性として生きてしまう。
         el.removeAttribute(name);
+        const v = values[Number(m[1])];
         if (isRef(name, v)) {
           refs.push(() => v(el)); // 子穴の置換まで終えてから渡す
           continue;
         }
-        const event = resolveEvent(name, v);
-        if (event) {
-          el.addEventListener(event, v as EventListener); // onClick → click
-          continue;
-        }
-        // 属性名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
-        const { key, set } = resolveSetter(name);
-        if (typeof v === "function" || isSignal(v)) {
-          // 関数穴もシグナル直渡しも accessor に揃えて reactive にする
-          const acc = toAccessor(v as Signal<unknown> | (() => unknown));
-          effect(() => set(el, key, acc()));
-        } else {
-          set(el, key, v); // 属性なら null/false/真偽の意味を保つ
-        }
+        // 配線規則（onXxx=イベント / `.foo`=プロパティ / それ以外=属性、関数 / signal は reactive）は
+        // node.ts に集約して h と共用する。
+        bindProp(el, name, v);
       } else if (ATTR_RE.test(value)) {
         // "btn ${...}" のような部分埋め込み
         ATTR_RE.lastIndex = 0;

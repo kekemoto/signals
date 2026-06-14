@@ -9,7 +9,7 @@
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
 import { toAccessor } from "./node.js";
-import { createRoot, effect, type Signal, signal } from "./reactive.js";
+import { effect, rooted, type Signal, signal } from "./reactive.js";
 
 interface Entry<T> {
   node: Node;
@@ -45,18 +45,16 @@ export function For<T>(
       if (next.has(key)) throw new Error(`For: duplicate key: ${String(key)}`);
       let entry = entries.get(key);
       if (!entry) {
-        let node!: Node;
-        let dispose!: () => void;
         const itemSig = signal(item); // 行ローカルに item / index を保持
         const indexSig = signal(i);
-        createRoot((d) => {
-          dispose = d;
-          // accessor で渡す: 行内の穴が itemSig / indexSig を購読し、値の差し替えに反応する
-          node = render(
+        // 行ごとの独立スコープ。accessor で渡すことで、行内の穴が itemSig / indexSig を
+        // 購読し、値の差し替えに反応する。
+        const { value: node, dispose } = rooted(() =>
+          render(
             () => itemSig.value,
             () => indexSig.value,
-          );
-        }); // 行ごとの独立スコープ
+          ),
+        );
         entry = { node, dispose, item: itemSig, index: indexSig };
       } else {
         // 使い回す行: 中身と位置を流し込む（Object.is で無変化なら通知は起きない）。
