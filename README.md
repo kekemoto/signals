@@ -2,7 +2,7 @@
 
 ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
 
-- **コア** — `signal` / `effect` / `batch` / `cached` / `store` / `onCleanup` / `untrack` / `createRoot` / `isSignal`
+- **コア** — `signal` / `effect` / `batch` / `cached` / `store` / `onCleanup` / `untrack` / `createRoot` / `getOwner` / `runWithOwner` / `isSignal`
 - **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
 
 ## インストール
@@ -217,6 +217,34 @@ const stop = createRoot(dispose => {
 
 stop(); // 配下の effect をすべて解放
 ```
+
+### `getOwner()` / `runWithOwner(owner, fn)`
+
+いまの所有ツリーの親を取り出し（`getOwner`）、あとからその親の下で関数を実行する
+（`runWithOwner`）。`setTimeout` / `await` / `fetch` のコールバックの中で `effect` や
+`cached` を作ると、その時点ではもう所有ツリーの親がいないため **孤児**になり、親を
+dispose しても畳まれずリークする。コールバックに入る前に `getOwner()` で親を掴んでおき、
+コールバックの中で `runWithOwner` に渡すと、元のツリーへ復帰してそこで作った `effect` を
+親に紐づけられる（＝親 dispose で一緒に畳まれる）。
+
+```js
+import { effect, getOwner, onCleanup, runWithOwner } from "@kekemoto/signals";
+
+effect(() => {
+  const owner = getOwner();          // いまの親を掴む
+  const id = setTimeout(() => {
+    runWithOwner(owner, () => {       // 元のツリーへ復帰
+      effect(() => { /* この effect は親と一緒に畳まれる */ });
+    });
+  }, 1000);
+  onCleanup(() => clearTimeout(id));
+});
+```
+
+`runWithOwner` は所有（誰の子か）だけを復帰し、依存追跡（誰の依存か）は止める（`untrack`
+相当）。非同期文脈には「いま依存を集めている effect」が無いので、`fn` 内での signal 読みは
+依存にならない。`owner` が dispose 済みなら再アタッチせず（死んだ枝へのぶら下げを防ぐ）、
+dev ビルドでは `console.warn` で知らせる。
 
 ## DOM API
 
@@ -597,7 +625,9 @@ effect(() => {
 ```
 
 トップレベル（どの effect にも属さない場所）で作った effect は自動では畳まれない。
-その場合は戻り値（dispose 関数）か `createRoot` で明示的に管理する。
+その場合は戻り値（dispose 関数）か `createRoot` で明示的に管理する。`setTimeout` / `await`
+後のコールバックの中も「親がいない場所」になるので、元のツリーに紐づけたいときは
+`getOwner()` で親を掴んでおき `runWithOwner` で復帰する。
 
 ## 開発
 
