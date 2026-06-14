@@ -10,7 +10,7 @@
 //   - 切り替え時に中身を createRoot で作り、消えるときは dispose（中の effect も止まる）
 //   - when の「真偽」が変わったときだけ作り直す（同じ間は据え置き）
 import { toAccessor } from "./node.js";
-import { createRoot, effect, type Signal } from "./reactive.js";
+import { effect, rooted, type Signal } from "./reactive.js";
 
 type Branch = () => Node | null | undefined;
 // render 用の枝。「真だった値を返す accessor」を受け取る（引数を読まなくてもよいので
@@ -57,12 +57,7 @@ export function Show<T>(
     // 新しい中身を作る（show なら render に value accessor を渡す、そうでなければ fallback）
     const make: Branch | null = show ? () => render(value) : fallback;
     if (make) {
-      let node: Node | null | undefined;
-      let dispose!: () => void;
-      createRoot((d) => {
-        dispose = d;
-        node = make();
-      });
+      const { value: node, dispose } = rooted(make);
       if (node) parent.insertBefore(node, end);
       // node の有無にかかわらず dispose は必ず保持する。
       // node が null でも render 内で張った effect を次の切り替えで畳めるようにするため。
