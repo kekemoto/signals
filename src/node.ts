@@ -1,14 +1,20 @@
 // node.ts — 穴・子の値を DOM ノードへ変換する共通処理（h.ts / html.ts で共用）
-import { effect, isSignal } from "./reactive.js";
+import { effect, isSignal, type Signal } from "./reactive.js";
+
+/**
+ * reactive な入力を1つの accessor `() => T` に正規化する。
+ * signal 直渡し（`span(state.user.name)`）と accessor（`span(() => ...)`）の両方を
+ * 受ける穴・コンポーネント引数で、「読み口は関数」に揃えるために共用する。
+ */
+export function toAccessor<T>(v: Signal<T> | (() => T)): () => T {
+  return isSignal(v) ? () => v.value : v;
+}
 
 /** 値を1つの Node に変換する。関数 / シグナルは reactive な範囲、配列はまとめて並べる。 */
 export function toNode(child: unknown): Node {
   // 真偽値はどちらも非表示（属性側の true=空文字 とは別。子では false/true とも何も描かない）。
   if (child == null || typeof child === "boolean") return document.createTextNode("");
-  if (isSignal(child)) {
-    const s = child;
-    child = () => s.value;
-  } // シグナル直接は関数に正規化
+  if (isSignal(child)) child = toAccessor(child); // シグナル直接は関数に正規化
   if (typeof child === "function") {
     // コメント2つで範囲を作り、返り値が何であれその間を再描画する。
     // Node / 配列を返せば構造ごと入れ替わる（${() => list.value.map(...)} が書ける）。

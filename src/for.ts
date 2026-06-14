@@ -8,7 +8,8 @@
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
-import { createRoot, effect, isSignal, type Signal, signal } from "./reactive.js";
+import { toAccessor } from "./node.js";
+import { createRoot, effect, type Signal, signal } from "./reactive.js";
 
 interface Entry<T> {
   node: Node;
@@ -22,7 +23,7 @@ export function For<T>(
   keyFn: (item: T) => unknown,
   render: (item: () => T, index: () => number) => Node,
 ): DocumentFragment {
-  const itemsFn = isSignal(items) ? () => items.value : items; // signal なら .value を読む関数に
+  const itemsFn = toAccessor(items); // signal なら .value を読む関数に正規化
   const start = document.createComment("for");
   const end = document.createComment("/for");
   const frag = document.createDocumentFragment();
