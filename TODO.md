@@ -18,7 +18,7 @@
 | 優先 | 項目 | 理由 |
 |---|---|---|
 | 低 | #9 SVG / #21 shadow DOM | 必要になったときに |
-| 低 | #37, #38, #44, #45 の [改善] 各種 | 可読性・一貫性。挙動は変わらない |
+| 低 | #37, #38, #44 の [改善] 各種 | 可読性・一貫性。挙動は変わらない |
 | 低 | #26, #28 インフラ整備 | 機能とは独立にいつでも |
 
 ---
@@ -163,7 +163,7 @@ README のコード片だけで、動かして試せるものがない。
 - **For の穴の書き味は不変**: `For` の `item` / `index` は accessor なので、直渡しの有無に関わらず
   穴は `() => item().text`。これは純粋に「素の値の穴」の API 問題。
 - **実装・型の単純化（廃止側の小さな利点）**: 廃止すれば `toNode` / `bindProp` の signal 分岐と
-  `Child` / `PropValue` 型の `Signal` union が消え、#44・#45 で node.ts に寄せた正規化処理も
+  `Child` / `PropValue` 型の `Signal` union が消え、#44 で node.ts に寄せた正規化処理も
   「関数か否か」だけになる。
 - **store への影響は副次的**: `store` の「葉=signal を直渡し」（`span(state.user.name)`）も廃止で
   失われるが、`store` を主力に据えるかは別の話。ここでは判断の決め手にはしない。
@@ -181,15 +181,6 @@ README のコード片だけで、動かして試せるものがない。
 **対応案**: 読み取りルールは node.ts に一元化する。`wireDynamicAttr` の `read(values[i])` を
 `toAccessor(...)()` 経由にするか、node.ts に eager 版ヘルパー（例 `readInput`）を1つ置いて
 両方から使う。穴入力の読み取り規則が完全に1か所に集まる。
-
-### 45. 「reactive な穴か」の判定述語を node.ts に共通化 [改善]
-
-`typeof v === "function" || isSignal(v)`（＝この入力は reactive か）の判定が、node.ts の
-`bindProp` と html.ts の `wireDynamicAttr`（`parts.some(...)` の中）に重複している。
-
-**対応案**: node.ts に述語（例 `isReactiveInput(v)`）を1つ置き、両方から使う。#44 と一体で
-「穴入力の正規化・判定・読み取り」を node.ts に揃えられる。#42 を「残す」で決めるなら、この判定が
-唯一の reactive 入口になるので、なおさら1か所にしておく価値がある。
 
 ## h.ts / html.ts
 
