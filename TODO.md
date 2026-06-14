@@ -90,12 +90,21 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 `attachShadow` に切り替えられるようにする。マウント先を `host` か `shadowRoot` かに
 分岐するだけで、スタイル隔離が要るコンポーネントに対応できる。
 
-### 23. SSR / ハイドレーション非対応 [割り切り]
+### 23. SSR / ハイドレーション [設計済み・未実装]
 
-`document` 前提・クライアントサイド専用。
+`document` 前提・クライアントサイド専用。状態保存（ノード保存）型の真のハイドレーションを
+入れる方針で設計を確定した。詳細な引き継ぎ資料は `docs/ssr-hydration-plan.md`。
 
-**対応案**: スコープ外として README に明記するだけでよい（対応するならライブラリの
-性格が変わるレベルの作業になるため、現状の「最小」方針とは両立しない）。
+**方針（要約）**: テンプレ解釈を 1 回だけ行って中間表現（descriptors）に落とし、
+`emit(descriptors, values)`（サーバ & ブラウザ共有の文字列エミッタ）と
+`wire(descriptors, root)`（新規描画と adopt で共通の配線パス）に分ける。ビルドレスは維持し
+（Solid 式コンパイラは採らない）、境界・起動・初期 props は Custom Element（`connectedCallback` /
+`ctx.prop`）に肩代わりさせてグローバルな hydrate 機構を自前で作らない。第1弾は `html` に絞り、
+`h` / `tags` はスコープ外。マーカー戦略は Lit SSR を参照。
+
+**対応案**: `docs/ssr-hydration-plan.md` の「段階的な実装計画」に沿って進める
+（①descriptors 分離 → ②emit 追加 → ③wire を adopt 対応 → ④hydrate / defineElement adopt →
+⑤state 直列化）。テストは「文字列出力 / ハイドレーション（ノード同一性）/ パリティ」の 3 層。
 
 ---
 
