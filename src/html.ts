@@ -19,7 +19,7 @@
 //   この段では挙動は従来どおり（解釈を 1 回に畳んでキャッシュするだけ）。
 
 import { bindProp, isRef, resolveSetter, toNode } from "./node.js";
-import { effect, isSignal } from "./reactive.js";
+import { DEV, effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -113,8 +113,22 @@ function parse(strings: TemplateStringsArray): Descriptors {
     } else {
       // 属性の穴（onXxx / `.foo` / ref / 通常属性、または部分埋め込み）
       const el = n as Element;
+      // タグ名の位置の穴（`<${tag}>`）はマーカーがタグ名に焼き込まれる。配線できず無視される。
+      if (DEV && el.tagName.toLowerCase().includes(MARK))
+        console.warn(
+          "html: タグ名の位置にある穴は未対応です（動的なタグ名はできません）。この穴は無視されます。",
+        );
       for (const attr of [...el.attributes]) {
         const { name, value } = attr;
+        // 属性名の位置の穴（`<div ${x}>` / `<div data-${k}>`）はマーカーが名前に焼き込まれる。
+        // 値マーカーと違い配線経路が無いので、dev で知らせて以降の判定はスキップする（挙動は従来と同じ＝無視）。
+        if (name.includes(MARK)) {
+          if (DEV)
+            console.warn(
+              "html: 属性名・スプレッド位置にある穴は未対応です（属性名のスプレッドはできません）。この穴は無視されます。",
+            );
+          continue;
+        }
         const m = value.match(COMMENT_RE); // 値ぜんぶが1つの穴か
         if (m) {
           holes.push({ kind: "attr", node, name, index: Number(m[1]) });
