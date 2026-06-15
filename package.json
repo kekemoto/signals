@@ -28,6 +28,10 @@
       "types": "./dist/src/html.d.ts",
       "default": "./dist/src/html.js"
     },
+    "./emit": {
+      "types": "./dist/src/emit.d.ts",
+      "default": "./dist/src/emit.js"
+    },
     "./for": {
       "types": "./dist/src/for.d.ts",
       "default": "./dist/src/for.js"
@@ -55,7 +59,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src test",
     "format": "biome check --write src test",
-    "test": "npm run build && node --test dist/test/test-core.js dist/test/test-owner.js",
+    "test": "npm run build && node --test dist/test/test-core.js dist/test/test-owner.js dist/test/test-emit.js",
     "test:dom": "npm run build && node --test dist/test/test-dom.js",
     "prepublishOnly": "npm run clean && npm run build"
   },

@@ -97,7 +97,10 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 
 **対応案**: `docs/ssr-hydration-plan.md` の「段階的な実装計画」に沿って進める
 （①descriptors 分離【実装済み: `html.ts` の `parse` / `wire` 分離・テンプレ単位キャッシュ。挙動は不変】
-→ ②emit 追加 → ③wire を adopt 対応 → ④hydrate / defineElement adopt →
+→ ②emit 追加【実装済み: `src/emit.ts`（`./emit` エントリ）。DOM 非依存の文字列エミッタ。
+値埋め・エスケープ・イベント / ref / プロパティ穴のスキップ・子穴の開閉ペア・部分埋め込みを実装。
+テストは `test/test-emit.ts`】
+→ ③wire を adopt 対応 → ④hydrate / defineElement adopt →
 ⑤state 直列化）。テストは「文字列出力 / ハイドレーション（ノード同一性）/ パリティ」の 3 層。
 
 ---
