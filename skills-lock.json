@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "teach-me": {
+      "source": "kekemoto/skills",
+      "sourceType": "github",
+      "skillPath": "skills/teach-me/SKILL.md",
+      "computedHash": "d7e7096926b8864623fe6a5d9c3236713e400734c269b32f53fcd74ea71e9b63"
+    }
+  }
+}
