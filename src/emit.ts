@@ -22,7 +22,7 @@
 //   import できる。テンプレ解釈は `html.ts` の DOM パース（`template.innerHTML`）を通らない別経路で、
 //   自前の軽量トークナイザでチャンク＋穴に分ける。
 import { isRef, resolveEvent } from "./node.js";
-import { isSignal } from "./reactive.js";
+import { DEV, isSignal } from "./reactive.js";
 
 /** 子穴（reactive）を囲む開閉コメント。node.ts の toNode が作るペアと同形にして wire を共用する。 */
 const HOLE_OPEN = "<!--hole-->";
@@ -422,9 +422,18 @@ function parse(strings: TemplateStringsArray): Op[] {
           break;
         case S.attrName:
           attrNameHole = true; // 属性名に穴 → その属性は捨てる
+          // 黙って捨てるとデバッグ不能なので dev では知らせる（html.ts も同じ穴を非対応にしている）。
+          if (DEV)
+            console.warn(
+              "emit: 属性名の位置にある穴は未対応です（属性名を穴で組み立てることはできません）。この穴は無視されます。",
+            );
           break;
         // tagName / beforeAttr / afterName での穴（動的タグ名・スプレッド等）は未対応。捨てる。
         default:
+          if (DEV)
+            console.warn(
+              "emit: タグ名・スプレッド位置にある穴は未対応です（動的なタグ名や属性のスプレッドはできません）。この穴は無視されます。",
+            );
           break;
       }
     }

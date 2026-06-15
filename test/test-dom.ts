@@ -360,6 +360,25 @@ test("html: signal 直接で Node", () => {
   );
 });
 
+test("html: 属性名・スプレッド位置の穴は無視され、dev では警告する", () => {
+  // dev ビルドでだけ警告する。テストは NODE_ENV 未設定 = dev なので発火するが、
+  // production で実行された場合も落ちないよう期待値を dev フラグで揃える。
+  const dev = typeof process === "undefined" || process.env.NODE_ENV !== "production";
+  const orig = console.warn;
+  let warns = 0;
+  console.warn = () => {
+    warns++;
+  };
+  try {
+    // 属性名／スプレッド位置の穴は配線できず無視される（emit と同じ非対応スコープ）。
+    const el = html`<div ${"x"}>hi</div>` as HTMLElement;
+    assert.equal(el.textContent, "hi", "html: スプレッド位置の穴は無視される");
+    assert.equal(warns >= (dev ? 1 : 0), true, "無視するときは dev で警告する");
+  } finally {
+    console.warn = orig;
+  }
+});
+
 // === h / tags: 関数の子が Node / 配列を返す（html と同じ範囲再描画）===
 test("h: 関数子で .map リスト", () => {
   const items = signal(["A", "B"]);
