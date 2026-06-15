@@ -60,7 +60,7 @@
     "lint": "biome check src test",
     "format": "biome check --write src test",
     "test": "npm run build && node --test dist/test/test-core.js dist/test/test-owner.js dist/test/test-emit.js",
-    "test:dom": "npm run build && node --test dist/test/test-dom.js",
+    "test:dom": "npm run build && node --test dist/test/test-dom.js dist/test/test-hydrate.js",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [

@@ -18,7 +18,8 @@
 //     新規描画もハイドレーションも将来この同一パスを共有する。
 //   この段では挙動は従来どおり（解釈を 1 回に畳んでキャッシュするだけ）。
 
-import { bindProp, isRef, resolveSetter, toNode } from "./node.js";
+import { claimRange, claimRoot, isHydrating, withScope } from "./hydration.js";
+import { adoptChild, bindProp, isRef, resolveSetter, toNode } from "./node.js";
 import { DEV, effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
@@ -55,6 +56,8 @@ const cache = new WeakMap<TemplateStringsArray, Descriptors>();
  */
 export function html(strings: TemplateStringsArray, ...values: unknown[]): Node {
   const desc = parse(strings);
+  // ハイドレーション中はサーバが出した既存 DOM を採用する（作り直さない）。
+  if (isHydrating()) return hydrate(desc, values);
   const content = desc.template.content.cloneNode(true) as DocumentFragment;
   wire(desc, content, values);
   // 前後の空白だけのテキストを落とし、ルートが1つならその要素を返す。
@@ -186,6 +189,86 @@ function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): 
   }
 
   // ref はすべての穴の配線が済んでから（要素が完成した状態で）1度だけ呼ぶ。
+  for (const run of refs) run();
+}
+
+/**
+ * パース済みの descriptors を、サーバ（emit）が出した既存 DOM に **採用（adopt）** して配線する
+ * （新規生成しない＝段階3の wire の adopt パス）。新規描画の `wire` と対になる:
+ *   - 属性 / イベント / プロパティ / ref 穴は既存要素にそのまま配線する（bindProp は冪等で、
+ *     reactive 属性の初回 effect が同じ値を入れ直すだけ。childList は変えない）。
+ *   - 子穴は reactive のときだけサーバの `<!--hole-->…<!--/hole-->` を claim して adoptChild で
+ *     effect を張り直す（初回は DOM を触らない）。静的な子穴はマーカーが無く配線不要なので飛ばす。
+ *
+ * 要素の対応づけは「descriptors の元テンプレ（desc.template）と既存 DOM は同じ著者 HTML
+ * 由来なので要素の文書順が一致する」性質を使う。属性穴の `node`（要素＋コメント混在の走査
+ * インデックス）を要素だけの順位に直し、既存 DOM の同順位の要素へ突き合わせる。
+ */
+function hydrate(desc: Descriptors, values: unknown[]): Node {
+  const root = claimRoot();
+  if (!root) {
+    if (DEV) console.warn("html(hydrate): 採用するルートノードが見つかりません。");
+    // 採用先が無ければ通常どおり新規生成にフォールバックする（mismatch を致命にしない）。
+    const content = desc.template.content.cloneNode(true) as DocumentFragment;
+    wire(desc, content, values);
+    trimEdges(content);
+    return content.childNodes.length === 1 ? content.firstChild! : content;
+  }
+  // このルートの内側だけを claimRange の探索範囲にして子穴を採用する。
+  withScope(root, () => wireAdopt(desc, root as Element, values));
+  return root;
+}
+
+/**
+ * descriptors を既存 DOM 部分木 `root` に配線する（hydrate の本体）。
+ * 属性穴は要素順位の突き合わせで、reactive 子穴は claimRange + adoptChild で採用する。
+ */
+function wireAdopt(desc: Descriptors, root: Element, values: unknown[]): void {
+  // 元テンプレの「要素＋コメント走査インデックス → 要素だけの順位」を作る（属性穴の node 用）。
+  const elemRank = new Map<number, number>();
+  const tw = document.createTreeWalker(desc.template.content, 0x1 | 0x80); // SHOW_ELEMENT | SHOW_COMMENT
+  let combined = -1;
+  let rank = -1;
+  while (tw.nextNode()) {
+    combined++;
+    if (tw.currentNode.nodeType === 1) elemRank.set(combined, ++rank);
+  }
+  // 既存 DOM の要素を文書順で集める（ルート自身を先頭に含める）。元テンプレと著者 HTML が
+  // 同じなので、この並びは elemRank の順位と一致する。
+  const serverEls: Element[] = [root];
+  const sw = document.createTreeWalker(root, 0x1); // SHOW_ELEMENT
+  while (sw.nextNode()) serverEls.push(sw.currentNode as Element);
+  const elemAt = (node: number): Element => serverEls[elemRank.get(node)!];
+
+  // 属性 / イベント / プロパティ / ref 穴。ref は木が完成してから呼ぶので退避する（wire と同じ）。
+  const refs: Array<() => void> = [];
+  for (const hole of desc.holes) {
+    if (hole.kind === "attr") {
+      const el = elemAt(hole.node);
+      const v = values[hole.index];
+      if (isRef(hole.name, v)) {
+        refs.push(() => v(el));
+        continue;
+      }
+      bindProp(el, hole.name, v);
+    } else if (hole.kind === "attr-part") {
+      wireDynamicAttr(elemAt(hole.node), hole.name, hole.value, values);
+    }
+  }
+
+  // 子穴。reactive のときだけサーバの開閉ペアを採用して effect を張り直す（順序＝文書順）。
+  for (const hole of desc.holes) {
+    if (hole.kind !== "child") continue;
+    const v = values[hole.index];
+    if (!(typeof v === "function" || isSignal(v))) continue; // 静的な子はサーバ出力のまま
+    const range = claimRange("hole");
+    if (range) adoptChild(range.start, range.end, v);
+    else if (DEV)
+      console.warn(
+        "html(hydrate): reactive な子穴に対応する <!--hole--> が見つかりません（mismatch）。",
+      );
+  }
+
   for (const run of refs) run();
 }
 

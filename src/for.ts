@@ -8,6 +8,7 @@
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
+import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal, signal } from "./reactive.js";
 
@@ -24,10 +25,17 @@ export function For<T>(
   render: (item: () => T, index: () => number) => Node,
 ): DocumentFragment {
   const itemsFn = toAccessor(items); // signal なら .value を読む関数に正規化
-  const start = document.createComment("for");
-  const end = document.createComment("/for");
+  // ハイドレーション中はサーバが出した `<!--for-->…<!--/for-->` を採用する（作り直さない）。
+  // 採用できたときは既存の行ノードを使い回し（initialRows）、初回 effect だけ render を
+  // 既存行へ adopt 配線する。採用先が無ければ通常どおり新規生成にフォールバックする。
+  const adopted = isHydrating() ? claimRange("for") : null;
+  const start = adopted ? adopted.start : document.createComment("for");
+  const end = adopted ? adopted.end : document.createComment("/for");
   const frag = document.createDocumentFragment();
-  frag.append(start, end); // この2つの間にリストを並べる
+  // 採用時は start / end は既にホスト内にあるので frag には入れない（移動させない＝childList を
+  // 変えない）。新規時だけ frag にこの2つを入れて、呼び出し側が挿入する。
+  if (!adopted) frag.append(start, end); // この2つの間にリストを並べる
+  let initialRows: Node[] | null = adopted ? nodesBetween(start, end) : null;
 
   let entries = new Map<unknown, Entry<T>>(); // key -> Entry
 
@@ -35,6 +43,8 @@ export function For<T>(
     const items = itemsFn(); // ここで配列を購読（変わると再実行）
     const parent = end.parentNode;
     if (!parent) return; // まだ DOM に挿入されていない
+    const rows = initialRows; // この実行で採用する既存行（初回だけ非 null）
+    initialRows = null; // 採用は初回のみ。以降は通常生成。
 
     const keys = items.map(keyFn);
     const next = new Map<unknown, Entry<T>>();
@@ -49,12 +59,19 @@ export function For<T>(
         const indexSig = signal(i);
         // 行ごとの独立スコープ。accessor で渡すことで、行内の穴が itemSig / indexSig を
         // 購読し、値の差し替えに反応する。
-        const { value: node, dispose } = rooted(() =>
-          render(
-            () => itemSig.value,
-            () => indexSig.value,
-          ),
-        );
+        const row = rows?.[i]; // 採用時の既存行（あれば作り直さず adopt 配線する）
+        const { value: node, dispose } = rooted(() => {
+          const make = () =>
+            render(
+              () => itemSig.value,
+              () => indexSig.value,
+            );
+          // 採用時は既存行へ向けて render を実行し（行内の html が adopt 配線する）、
+          // ノードは既存行そのものを使う（render の戻り値は捨てる）。新規時は普通に生成。
+          if (!row) return make();
+          withRoot(row, make);
+          return row;
+        });
         entry = { node, dispose, item: itemSig, index: indexSig };
       } else {
         // 使い回す行: 中身と位置を流し込む（Object.is で無変化なら通知は起きない）。
