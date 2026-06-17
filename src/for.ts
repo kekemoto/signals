@@ -8,7 +8,7 @@
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
-import { rawChild, rawHtml } from "./emit.js";
+import { rawHtml, toHtml } from "./emit.js";
 import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal, signal } from "./reactive.js";
@@ -38,7 +38,7 @@ export function For<T>(
     let rows = "";
     for (let i = 0; i < list.length; i++) {
       const item = list[i];
-      rows += rawChild(
+      rows += toHtml(
         render(
           () => item,
           () => i,

@@ -53,7 +53,7 @@ export function isRawHtml(v: unknown): v is RawHtml {
  * `RawHtml` 封筒なら中身を取り出し、null / 真偽は空、文字列はそのまま信頼して通す。
  * 入力は render 済みの断片なので、`serializeChild` の関数 / signal / 配列の解決は要らない。
  */
-export function rawChild(v: unknown): string {
+export function toHtml(v: unknown): string {
   if (v == null || typeof v === "boolean") return "";
   if (isRawHtml(v)) return v.html;
   return String(v);
@@ -143,7 +143,7 @@ function styleString(obj: Record<string, unknown>): string {
 /**
  * 子穴の値を HTML 文字列に直列化する（emit の子描画の主役）。関数 / signal / 配列は再帰的に
  * 解決し、null / 真偽値は空にする。素のプリミティブは XSS 対策でエスケープする。
- * エスケープしない変種は `rawChild`（For / Show のサーバ展開専用）。
+ * エスケープしない変種は `toHtml`（For / Show のサーバ展開専用）。
  */
 function serializeChild(v: unknown): string {
   if (typeof v === "function") return serializeChild((v as () => unknown)());
