@@ -170,8 +170,9 @@ test("hydrate: 複数の reactive 子穴が順番どおり採用される", () =
 });
 
 // === For の採用 ===
-// emit はまだ For をシリアライズできない（DOM の DocumentFragment を返すため）ので、
-// サーバ DOM を手組みして採用を確認する（stage 4 の orchestrator が将来やる位置合わせを再現）。
+// emit の For シリアライズ（#47）は DOM 無し環境でのみ働く（`typeof document === "undefined"`）。
+// この採用テストは jsdom 上（document あり）なので、サーバ相当の HTML は手組みする。手組みの
+// 文字列は emit の For 出力（test-emit.ts で固定）と同形＝パリティはそちらで担保している。
 test("For: 既存行を採用し、作り直さず reactive に動く", () => {
   const items = signal([
     { id: 1, text: "one" },

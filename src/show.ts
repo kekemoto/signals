@@ -9,14 +9,17 @@
 //   - when が真なら render() を、偽なら fallback() を表示する
 //   - 切り替え時に中身を createRoot で作り、消えるときは dispose（中の effect も止まる）
 //   - when の「真偽」が変わったときだけ作り直す（同じ間は据え置き）
+import { rawChild, rawHtml } from "./emit.js";
 import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal } from "./reactive.js";
 
-type Branch = () => Node | null | undefined;
+// 枝の戻り値。クライアントでは Node（`html` / `h`）、サーバ（emit）では文字列を返せる
+// アイソモーフィックな型（#47）。null / undefined は「何も描かない」。
+type Branch = () => Node | string | null | undefined;
 // render 用の枝。「真だった値を返す accessor」を受け取る（引数を読まなくてもよいので
 // 従来の `() => ...` もそのまま渡せる＝後方互換）。
-type RenderBranch<T> = (value: () => NonNullable<T>) => Node | null | undefined;
+type RenderBranch<T> = (value: () => NonNullable<T>) => Node | string | null | undefined;
 
 interface Current {
   node: Node | null | undefined;
@@ -33,6 +36,14 @@ export function Show<T>(
   // whenFn() は常に真値として扱える（型上も NonNullable<T> に絞る）。真偽が偽に変わる時は
   // 先に外側の effect がこの部分木を dispose するため、ここから偽値が読まれることはない。
   const value = () => whenFn() as NonNullable<T>;
+  // サーバ（DOM 無し）では emit 用に文字列化する（#47）。when を 1 回読み、真なら render(value)、
+  // 偽なら fallback だけを展開して `<!--show-->…<!--/show-->` で囲む。adopt 側の claimRange("show")
+  // と同形のマーカーにしてパリティを保つ。effect は張らない。戻り値は生 HTML 封筒で、emit の子穴に
+  // 入れても再エスケープされない。型は CSR と同じ DocumentFragment を名乗る（サーバ経路は実装詳細）。
+  if (typeof document === "undefined") {
+    const branch = whenFn() ? render(value) : fallback ? fallback() : null;
+    return rawHtml(`<!--show-->${rawChild(branch)}<!--/show-->`) as unknown as DocumentFragment;
+  }
   // ハイドレーション中はサーバが出した `<!--show-->…<!--/show-->` を採用する（作り直さない）。
   const adopted = isHydrating() ? claimRange("show") : null;
   const start = adopted ? adopted.start : document.createComment("show");
@@ -83,7 +94,11 @@ export function Show<T>(
     // 新しい中身を作る（show なら render に value accessor を渡す、そうでなければ fallback）
     const make: Branch | null = show ? () => render(value) : fallback;
     if (make) {
-      const { value: node, dispose } = rooted(make);
+      // CSR では make は Node（または null）を返す（string はサーバ経路のみ）。
+      const { value: node, dispose } = rooted(make) as {
+        value: Node | null | undefined;
+        dispose: () => void;
+      };
       if (node) parent.insertBefore(node, end);
       // node の有無にかかわらず dispose は必ず保持する。
       // node が null でも render 内で張った effect を次の切り替えで畳めるようにするため。

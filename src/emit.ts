@@ -28,6 +28,35 @@ import { DEV, isSignal } from "./reactive.js";
 const HOLE_OPEN = "<!--hole-->";
 const HOLE_CLOSE = "<!--/hole-->";
 
+/**
+ * 「生 HTML」マーカー。emit / サーバ用 `For` / `Show` が組み立て済みの HTML 文字列を、
+ * 別の emit の子穴へ入れたときに **二重エスケープしない**ための封筒。通常の文字列の子は
+ * データ扱いでエスケープされるが、これに包まれた文字列は既に HTML として組み立て済み
+ * （信頼境界の内側）なのでそのまま流す。`For` / `Show` のサーバ出力（#47）が使う。
+ */
+const RAW = Symbol("signals.rawHtml");
+export interface RawHtml {
+  html: string;
+  [RAW]: true;
+}
+/** 文字列を「生 HTML」として封筒に包む（子穴へ入れてもエスケープされない）。 */
+export function rawHtml(html: string): RawHtml {
+  return { html, [RAW]: true };
+}
+/** 値が rawHtml で包まれた生 HTML かを判定する。 */
+export function isRawHtml(v: unknown): v is RawHtml {
+  return typeof v === "object" && v !== null && (v as { [RAW]?: unknown })[RAW] === true;
+}
+/**
+ * emit / `For` / `Show` が返す子（文字列 / RawHtml / null / 真偽）を「生 HTML 文字列」に
+ * 正規化する（エスケープしない）。`For` の各行・`Show` の枝の組み立てに使う。
+ */
+export function rawChild(v: unknown): string {
+  if (v == null || typeof v === "boolean") return "";
+  if (isRawHtml(v)) return v.html;
+  return String(v);
+}
+
 /** 解釈結果の命令列。値に依存しない構造だけを持つのでテンプレ単位でキャッシュできる。 */
 type Op =
   // 静的な出力（タグ構造・静的属性・本文テキスト）。そのまま連結する。
@@ -113,6 +142,7 @@ function styleString(obj: Record<string, unknown>): string {
 function serializeChild(v: unknown): string {
   if (typeof v === "function") return serializeChild((v as () => unknown)());
   if (isSignal(v)) return serializeChild(v.value);
+  if (isRawHtml(v)) return v.html; // 組み立て済みの生 HTML（For / Show のサーバ出力）はそのまま
   if (v == null || typeof v === "boolean") return ""; // 子の true / false はどちらも非表示
   if (Array.isArray(v)) return v.flat(Infinity).map(serializeChild).join("");
   if (typeof Node !== "undefined" && v instanceof Node) {

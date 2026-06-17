@@ -20,8 +20,8 @@
 （`runHydration` / `claimRoot` / `claimRange` / `withScope` / `withRoot` / `nodesBetween` /
 `isHydrating`）は `src/hydration.ts` 内部・テスト用で、index からは公開していない。
 
-未実装の残課題（state 直列化・slot × ハイドレーション・`emit` の `For` / `Show` / `Node` 子
-シリアライズ・サーバ orchestrator・mismatch 検出の強化など）は **TODO.md** で管理する。各課題の
+未実装の残課題（state 直列化・slot × ハイドレーション・`emit` の `Node` 子シリアライズ・
+サーバ orchestrator・mismatch 検出の強化など）は **TODO.md** で管理する。各課題の
 設計方針・根拠は本ドキュメントの該当節（「h / tags のハイドレーション」「非対象 / 留意」など）に残す。
 
 以下は設計の根拠（なぜこの構成にしたか）と、各ファイルの効きどころ。実装済みの今でも、
