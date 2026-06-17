@@ -77,7 +77,7 @@ export function hydrate(container: Node, fn: () => unknown): () => void {
 
 /** 空白だけのテキストノードか（整形用の改行・インデントを採用時に読み飛ばすため）。 */
 function isBlankText(n: Node): boolean {
-  return n.nodeType === 3 && !/\S/.test(n.textContent || "");
+  return n.nodeType === Node.TEXT_NODE && !/\S/.test(n.textContent || "");
 }
 
 /**
@@ -124,7 +124,7 @@ export function claimRange(name: string): { start: Comment; end: Comment } | nul
   let start: Comment | null = null;
   let depth = 0;
   while (n) {
-    if (n.nodeType === 8) {
+    if (n.nodeType === Node.COMMENT_NODE) {
       const data = (n as Comment).data;
       if (!start) {
         if (data === open) {

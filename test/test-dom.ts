@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).document = dom.window.document;
 (globalThis as any).Node = dom.window.Node;
+(globalThis as any).NodeFilter = dom.window.NodeFilter;
 (globalThis as any).HTMLElement = dom.window.HTMLElement;
 (globalThis as any).customElements = dom.window.customElements;
 (globalThis as any).MutationObserver = dom.window.MutationObserver;
@@ -235,6 +236,34 @@ test("html: 複数ルートは fragment", () => {
   const host = mount();
   host.append(frag);
   assert.equal(host.querySelectorAll("p").length, 2, "html: 複数ルートは fragment");
+});
+// === 静的部分の HTML コメント（パーサの inTag 判定）===
+// コメントは `<!-- ... -->` まで読み飛ばし、中身の `'` / `>` / `<` で inTag を誤らない。
+test("html: アポストロフィを含むコメントの後の reactive 子穴が配線される", () => {
+  const count = signal(5);
+  // `it's` の `'` で quote が開き `-->` の `>` を飲み込むと、続く穴が属性扱いになって壊れる回帰。
+  const el = html`<div><!-- it's a note -->${() => count.value}</div>` as HTMLElement;
+  assert.equal(el.textContent, "5", "html: コメント直後の子穴が reactive に描画される");
+  count.value = 9;
+  assert.equal(el.textContent, "9", "html: コメント直後の子穴が更新に追従する");
+});
+test("html: `>` を含むコメントの後の属性穴が正しい要素に配線される", () => {
+  const cls = signal("on");
+  const el = html`<div><!-- a > b --></div><span class=${cls}></span>` as DocumentFragment;
+  const span = (el as unknown as DocumentFragment).querySelector("span")!;
+  assert.equal(span.getAttribute("class"), "on", "html: コメント後の属性穴が span に乗る");
+  cls.value = "off";
+  assert.equal(span.getAttribute("class"), "off", "html: コメント後の属性穴が更新に追従する");
+});
+test("html: コメント内の `<` でタグ開始扱いにならない", () => {
+  const count = signal(1);
+  const el = html`<div><!-- <button> -->${() => count.value}</div>` as HTMLElement;
+  assert.equal(
+    el.querySelectorAll("button").length,
+    0,
+    "html: コメント内の <button> は要素化しない",
+  );
+  assert.equal(el.textContent, "1", "html: コメント直後の子穴が配線される");
 });
 
 test("html: ref が内側の要素を完成後に受け取る", () => {

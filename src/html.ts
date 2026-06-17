@@ -24,7 +24,10 @@ import { DEV, effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
-const ATTR_RE = new RegExp(`${MARK}(\\d+)`, "g");
+// 部分埋め込み属性値を [静的, 穴番号, 静的, ...] に割る split 用。`g` フラグは split には
+// 不要なので付けない（lastIndex を持つ状態付き regex を避ける）。穴の有無の判定は
+// value.includes(MARK) で行う。
+const ATTR_SPLIT_RE = new RegExp(`${MARK}(\\d+)`);
 const COMMENT_RE = new RegExp(`^${MARK}(\\d+)$`);
 
 /**
@@ -70,6 +73,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
  *   1. 穴に目印を埋めた HTML 文字列を組み立てる（タグの中なら値トークン、子位置ならコメント）。
  *   2. ブラウザに構造をパースさせる（穴は属性値 or コメントとして残る）。
  *   3. 走査して穴を分類し（属性 / 部分埋め込み / 子）、マーカー属性は template から除去する。
+ *
+ * inTag 走査はタグ / 引用符 / `<!-- -->` コメントを追う。`<script>` / `<textarea>` などの
+ * raw text 要素の中身（中の `<` を文字として扱う等）は **対象外**［割り切り］。これらの中に穴を
+ * 置く使い方は想定しない（コストに見合わないため非対応）。
  */
 function parse(strings: TemplateStringsArray): Descriptors {
   const hit = cache.get(strings);
@@ -79,21 +86,38 @@ function parse(strings: TemplateStringsArray): Descriptors {
   let src = "";
   let inTag = false; // 今 <...> の内側か（属性位置か）
   let quote = ""; // タグ内で開いている引用符（" か '）
+  let inComment = false; // 今 <!-- ... --> の内側か
   const holeCount = strings.length - 1; // タグ付きテンプレートでは values.length と一致
   for (let i = 0; i < strings.length; i++) {
     const s = strings[i];
     for (let j = 0; j < s.length; j++) {
       // 直前の静的文字列を走査して inTag を更新
       const c = s[j];
-      if (inTag) {
+      if (inComment) {
+        // コメント内は inTag / quote を一切触らず `-->` まで読み飛ばす。これが無いと
+        // コメント中の `>` で inTag を誤って閉じたり、`'`（it's など）で quote が開いて
+        // `-->` の `>` を飲み込み、以降の穴の属性/子の判定がずれる。
+        if (c === "-" && s.startsWith("-->", j)) {
+          inComment = false;
+          j += 2; // `-->` の残り2文字を飛ばす
+        }
+      } else if (inTag) {
         if (quote) {
           if (c === quote) quote = "";
         } else if (c === '"' || c === "'") quote = c;
         else if (c === ">") inTag = false;
-      } else if (c === "<") inTag = true;
+      } else if (c === "<") {
+        // 子位置の `<!--` はタグではなくコメント開始。タグと区別してコメントモードへ入る。
+        if (s.startsWith("<!--", j)) {
+          inComment = true;
+          j += 3; // `<!--` の残り3文字を飛ばす
+        } else inTag = true;
+      }
     }
     src += s;
-    if (i < holeCount) src += inTag ? `${MARK}${i}` : `<!--${MARK}${i}-->`;
+    // コメント内の穴（`<!-- ${x} -->`）は配線経路が無いので、属性でも子でもなく
+    // 不活性なテキストマーカーとして置き（コメント本文に紛れて無視される）。
+    if (i < holeCount) src += inTag || inComment ? `${MARK}${i}` : `<!--${MARK}${i}-->`;
   }
 
   // 2. ブラウザに構造をパースさせる。
@@ -104,12 +128,15 @@ function parse(strings: TemplateStringsArray): Descriptors {
   //    （除去しても走査ノードの集合・順序は変わらないので wire 側のインデックスと揃う）。
   const holes: Hole[] = [];
   const dirty: Array<{ el: Element; name: string }> = [];
-  const walker = document.createTreeWalker(template.content, 0x1 | 0x80); // SHOW_ELEMENT | SHOW_COMMENT
+  const walker = document.createTreeWalker(
+    template.content,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
+  );
   let node = -1;
   while (walker.nextNode()) {
     node++;
     const n = walker.currentNode;
-    if (n.nodeType === 8) {
+    if (n.nodeType === Node.COMMENT_NODE) {
       // 子位置の穴（コメント）
       const m = (n as Comment).data.match(COMMENT_RE);
       if (m) holes.push({ kind: "child", node, index: Number(m[1]) });
@@ -136,9 +163,8 @@ function parse(strings: TemplateStringsArray): Descriptors {
         if (m) {
           holes.push({ kind: "attr", node, name, index: Number(m[1]) });
           dirty.push({ el, name });
-        } else if (ATTR_RE.test(value)) {
+        } else if (value.includes(MARK)) {
           // "btn ${...}" のような部分埋め込み
-          ATTR_RE.lastIndex = 0;
           holes.push({ kind: "attr-part", node, name, value });
           dirty.push({ el, name });
         }
@@ -162,7 +188,10 @@ function parse(strings: TemplateStringsArray): Descriptors {
 function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): void {
   // 走査して node 配列を作る（穴を処理して木を書き換える前に全ノード参照を確保する）。
   const nodes: Node[] = [];
-  const walker = document.createTreeWalker(content, 0x1 | 0x80);
+  const walker = document.createTreeWalker(
+    content,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
+  );
   while (walker.nextNode()) nodes.push(walker.currentNode);
 
   // 属性の穴を配線する。ref は木が完成した後に呼びたいので退避し、子穴の置換後にまとめて実行する。
@@ -226,17 +255,20 @@ function hydrate(desc: Descriptors, values: unknown[]): Node {
 function wireAdopt(desc: Descriptors, root: Element, values: unknown[]): void {
   // 元テンプレの「要素＋コメント走査インデックス → 要素だけの順位」を作る（属性穴の node 用）。
   const elemRank = new Map<number, number>();
-  const tw = document.createTreeWalker(desc.template.content, 0x1 | 0x80); // SHOW_ELEMENT | SHOW_COMMENT
+  const tw = document.createTreeWalker(
+    desc.template.content,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
+  );
   let combined = -1;
   let rank = -1;
   while (tw.nextNode()) {
     combined++;
-    if (tw.currentNode.nodeType === 1) elemRank.set(combined, ++rank);
+    if (tw.currentNode.nodeType === Node.ELEMENT_NODE) elemRank.set(combined, ++rank);
   }
   // 既存 DOM の要素を文書順で集める（ルート自身を先頭に含める）。元テンプレと著者 HTML が
   // 同じなので、この並びは elemRank の順位と一致する。
   const serverEls: Element[] = [root];
-  const sw = document.createTreeWalker(root, 0x1); // SHOW_ELEMENT
+  const sw = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
   while (sw.nextNode()) serverEls.push(sw.currentNode as Element);
   const elemAt = (node: number): Element => serverEls[elemRank.get(node)!];
 
@@ -281,7 +313,7 @@ function read(v: unknown): unknown {
  *  名前が `.foo` ならその文字列を DOM プロパティへ入れる（部分埋め込みは常に文字列になる）。 */
 function wireDynamicAttr(el: Element, name: string, value: string, values: unknown[]): void {
   const { key, set } = resolveSetter(name);
-  const parts = value.split(ATTR_RE); // [lit, idx, lit, idx, lit, ...]
+  const parts = value.split(ATTR_SPLIT_RE); // [lit, idx, lit, idx, lit, ...]
   const compose = () =>
     parts.map((p, i) => (i % 2 === 0 ? p : String(read(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
   // どれか1つでも関数 / シグナルなら毎回再計算、そうでなければ一度だけ設定する。
@@ -297,7 +329,7 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */
 function trimEdges(frag: DocumentFragment): void {
   const isBlank = (n: ChildNode | null) =>
-    n != null && n.nodeType === 3 && !/\S/.test(n.textContent || "");
+    n != null && n.nodeType === Node.TEXT_NODE && !/\S/.test(n.textContent || "");
   while (isBlank(frag.firstChild)) frag.firstChild!.remove();
   while (isBlank(frag.lastChild)) frag.lastChild!.remove();
 }
