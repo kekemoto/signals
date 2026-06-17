@@ -23,7 +23,7 @@
 | 中 | #42, #51, #53 [検討] の方針決定 | 実装より先に「やるか否か」を決める必要があり、他の作業（SSR スコープ・API 一本化）の前提になる |
 | 低 | #45, #46, #52, #55, #56 SSR の周辺強化 | state 直列化・slot 対応・mismatch 検出・サーバ実行ガード・`.foo` の初期表示。emit の穴（#47〜#49）が埋まってから／必要になってから |
 | 低 | #9 SVG / #21 shadow DOM | 必要になったときに |
-| 低 | #37, #38, #44 の [改善] 各種 | 可読性・一貫性。挙動は変わらない |
+| 低 | #37, #44 の [改善] 各種 | 可読性・一貫性。挙動は変わらない |
 | 低 | #13 イベントオプション / #43 README 構成 | 体験改善。手が空いたとき |
 | 低 | #26, #28 インフラ整備 | 機能とは独立にいつでも |
 
@@ -350,13 +350,3 @@ README のコード片だけで、動かして試せるものがない。
 
 **対応案**: 判定は `value.includes(MARK)` にし、`split` 用の regex は使う場所で
 作る（または `g` なしの判定用 regex を分ける）。
-
-### 38. マジックナンバー [改善]
-
-`html.ts` の `0x1 | 0x80`・`nodeType === 8`、および `nodeType === 3`（Text）。
-後者は html.ts の `trimEdges` だけでなく **node.ts の `toNode`（テキスト使い回し判定）にもある**。
-
-**対応案**: `NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT`、`Node.COMMENT_NODE`、
-`Node.TEXT_NODE` に置き換える。node.ts 側の `nodeType === 3` もこのとき一緒に直す。
-（h.ts の `for..in` ＋ 二重キャストは、prop 配線の node.ts 共通化のときに
-`Object.entries` へ移行済み。）
