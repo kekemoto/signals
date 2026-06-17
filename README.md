@@ -1,6 +1,119 @@
 # @kekemoto/signals
 
-ライブラリ非依存の最小リアクティブシステム＋ DOM ユーティリティ。TypeScript で書かれ、型定義（`.d.ts`）を同梱している。
+**ビルド不要・依存ゼロで、ページにリアクティビティを“振りかける”ための小さなライブラリ。**
+`<script>` を1行足すだけで、signal ベースのリアクティブな DOM・Web Components・SSR
+ハイドレーションが使える。Alpine のような手軽さに、本物の signal と素直な書き心地を
+足したものを目指している。
+
+- **ビルド不要** — トランスパイラもバンドラも要らない。`<script src>` か `import` で即動く。
+- **依存ゼロ** — ランタイム依存なし。TypeScript 製で型定義（`.d.ts`）を同梱。
+- **MPA / アイランド向き** — SPA で全部を抱え込まず、サーバーが出した HTML に
+  必要な部品だけ足す、という使い方もできる。
+
+## まず動かす
+
+1つの HTML ファイルに貼るだけで動く最小例。インストールもビルドも要らない。
+
+```html
+<!doctype html>
+<script src="https://cdn.jsdelivr.net/npm/@kekemoto/signals"></script>
+<script>
+  const { signal, html } = Signals;
+
+  const count = signal(0);
+  document.body.append(html`
+    <button onClick=${() => count.value++}>
+      clicked ${count} times
+    </button>`);
+</script>
+```
+
+`count.value++` するだけでボタンのテキストが書き換わる。仮想 DOM の差分も全体再レンダーも
+なく、`${count}` の箇所だけがピンポイントで更新される（細粒度更新）。
+
+## このライブラリでできること
+
+「サーバーが大半を描く（MPA）／足りない対話部分だけをアイランドで足す」を、ビルド無しで
+回すための3つの道具。
+
+### 1. ページの一部をリアクティブにする — `` html`...` ``
+
+`` html`...` `` は lit / htm 風のタグ付きテンプレートで、見た目どおりの HTML を書ける。
+signal はそのまま穴（`${...}`）に置けば reactive になり、`onInput=${...}` がイベント、
+`.value=${...}` が DOM プロパティ。既存ページの一部（`#app`）にマウントして、そこだけを
+動かす。
+
+```js
+import { signal } from "@kekemoto/signals";
+import { html } from "@kekemoto/signals/html";
+
+const first = signal("Ada");
+const last = signal("Lovelace");
+
+document.querySelector("#app").append(html`
+  <label>名 <input .value=${first} onInput=${(e) => (first.value = e.target.value)}></label>
+  <label>姓 <input .value=${last} onInput=${(e) => (last.value = e.target.value)}></label>
+  <p>こんにちは、${() => `${first.value} ${last.value}`} さん</p>`);
+```
+
+単一の signal は `${first}` と直接、複数を組む派生は `${() => ...}` と関数で包む。
+`memo` / `computed` は無く、派生は **ただの関数**で書く（[詳細](#派生はただの関数で書く)）。
+
+### 2. 独立した部品をサッと置く — `defineElement` + `tags`
+
+ゼロから組む自己完結した部品は Custom Element が向く。`defineElement` で中身を定義し、
+サーバーが出した HTML に `<x-counter>` を置くだけで、接続時に動き出す。`tags` は素の JS
+だけで（テンプレート方言なしで）要素を組めるビルダー。
+
+```js
+import { signal } from "@kekemoto/signals";
+import { defineElement } from "@kekemoto/signals/element";
+import { tags } from "@kekemoto/signals/tags";
+
+const { button } = tags;
+
+defineElement("x-counter", () => {
+  const count = signal(0);
+  return button({ onClick: () => count.value++ }, "n: ", count);
+});
+```
+
+```html
+<!-- サーバーが出した HTML に置くだけ -->
+<x-counter></x-counter>
+```
+
+接続時に所有ツリー（`createRoot`）を張って `setup` を1回呼び、切断時にまとめて dispose
+するので、部品が張った `effect` は孤児にならない（[所有ツリー](#所有ツリー自動-dispose)）。
+
+### 3. サーバーと素直につなぐ — `emit` + `hydrate`
+
+サーバー（SSG / Node）が出した HTML を、クライアントが**作り直さずに採用（adopt）**して
+reactive を配線する。focus・入力値・スクロールなどの DOM 状態を壊さない「状態保存型」の
+ハイドレーション。
+
+```js
+// --- サーバー / SSG（DOM 不要・Node から import 可）---
+import { emit } from "@kekemoto/signals/emit";
+
+const markup = emit`<span>count: ${() => 7}</span>`;
+// → '<span>count: <!--hole-->7<!--/hole--></span>'  これを HTML に埋めて送る
+```
+
+```js
+// --- クライアント（同じテンプレ・同じ初期値で配線だけ張る）---
+import { hydrate, signal } from "@kekemoto/signals";
+import { html } from "@kekemoto/signals/html";
+
+const count = signal(7); // サーバーと一致する初期値
+hydrate(document.querySelector("#app"), () => html`<span>count: ${count}</span>`);
+
+count.value = 42; // 既存の <span> のテキストだけ更新（作り直さない）
+```
+
+---
+
+ここまでが「何ができて何が嬉しいか」。以降は API ごとの詳しい説明。
 
 - **コア** — `signal` / `effect` / `batch` / `cached` / `store` / `onCleanup` / `onError` / `untrack` / `createRoot` / `getOwner` / `runWithOwner` / `isSignal`
 - **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
@@ -16,21 +129,13 @@ npm install @kekemoto/signals
 
 ### 素の `<script>`（グローバル変数 `Signals`）
 
-ビルド不要で一番手軽。IIFE 版を読み込むと `window.Signals` にすべての API が生える。
+ビルド不要で一番手軽。IIFE 版を読み込むと `window.Signals` にすべての API が生える
+（[まず動かす](#まず動かす)の例がこれ）。
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/@kekemoto/signals"></script>
 <script>
-  const { signal, tags } = Signals;
-  const { div, button, span } = tags;
-
-  const count = signal(0);
-  document.body.append(
-    div(
-      span(count),
-      button({ onClick: () => count.value++ }, "+1"),
-    ),
-  );
+  const { signal, html, tags, defineElement } = Signals; // すべて Signals 配下
 </script>
 ```
 
