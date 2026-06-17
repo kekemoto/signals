@@ -99,43 +99,10 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 `attachShadow` に切り替えられるようにする。マウント先を `host` か `shadowRoot` かに
 分岐するだけで、スタイル隔離が要るコンポーネントに対応できる。
 
-### 23. SSR / ハイドレーション [第1弾ほぼ実装済み・残りは⑤state 直列化（任意）]
-
-`document` 前提・クライアントサイド専用。状態保存（ノード保存）型の真のハイドレーションを
-入れる方針で設計を確定した。詳細な引き継ぎ資料は `docs/ssr-hydration-plan.md`。
-
-**方針（要約）**: テンプレ解釈を 1 回だけ行って中間表現（descriptors）に落とし、
-`emit(descriptors, values)`（サーバ & ブラウザ共有の文字列エミッタ）と
-`wire(descriptors, root)`（新規描画と adopt で共通の配線パス）に分ける。ビルドレスは維持し
-（Solid 式コンパイラは採らない）、境界・起動・初期 props は Custom Element（`connectedCallback` /
-`ctx.prop`）に肩代わりさせてグローバルな hydrate 機構を自前で作らない。第1弾は `html` に絞り、
-`h` / `tags` はスコープ外。マーカー戦略は Lit SSR を参照。
-
-**対応案**: `docs/ssr-hydration-plan.md` の「段階的な実装計画」に沿って進める
-（①descriptors 分離【実装済み: `html.ts` の `parse` / `wire` 分離・テンプレ単位キャッシュ。挙動は不変】
-→ ②emit 追加【実装済み: `src/emit.ts`（`./emit` エントリ）。DOM 非依存の文字列エミッタ。
-値埋め・エスケープ・イベント / ref / プロパティ穴のスキップ・子穴の開閉ペア・部分埋め込みを実装。
-テストは `test/test-emit.ts`】
-→ ③wire を adopt 対応【実装済み: `src/hydration.ts`（採用カーソル: `isHydrating` /
-`runHydration` / `claimRoot` / `claimRange` / `withScope` / `withRoot` / `nodesBetween`）。
-`node.ts` に `adoptChild`（toNode の adopt 版・初回は DOM を触らず採用）、`html.ts` に
-adopt パス（属性は要素順位の突き合わせ・reactive 子穴は `<!--hole-->` を claim）、
-`for.ts` / `show.ts` に既存行 / 既存中身の採用分岐を追加。テストは `test/test-hydrate.ts`
-（ノード同一性 / childList 変化 0 件 / 採用後の reactivity・event / パリティ）】
-→ ④hydrate / defineElement adopt【実装済み: `src/hydration.ts` に公開エントリ `hydrate`
-（createRoot を重ねて dispose 可能にした採用ラッパ）と host マーカー `HYDRATE_ATTR`。
-`element.ts` の `connectedCallback` に adopt モード（マーカーがあれば既存子をクリアせず
-`runHydration` で setup の出力を配線し、append しない・採用後はマーカーを strip）。
-`index.ts` から `hydrate` / `HYDRATE_ATTR` を公開。slot 投影は adopt 時は非対象（サーバが
-投影済みの出力をそのまま採用）。テストは `test/test-hydrate.ts`】
-→ ⑤state 直列化【未実装・任意。単純 props を超える初期データ用の規約。必要になってから。具体案は #45（`jsonAttr` / `prop.json`）】）。
-
-**既知の制約（slot × ハイドレーション）**: → #46 に分離。
-テストは「文字列出力 / ハイドレーション（ノード同一性）/ パリティ」の 3 層。
-
 ### 45. 状態直列化を `jsonAttr` / `prop.json` で対応 [未実装]
 
-#23 ⑤ の具体案。単純 props（文字列属性）を超えるリッチな初期データ（配列・オブジェクト）を
+ハイドレーション第1弾（実装済み）で未着手のまま残した「state 直列化（任意）」の具体案。
+単純 props（文字列属性）を超えるリッチな初期データ（配列・オブジェクト）を
 サーバ→クライアントで JSON 経由で受け渡すヘルパーを足す。ハイドレーション本体（adopt / wire）
 とは直交する **state seeding** で、MPA の「空 DOM + JSON 属性から CSR」にも、ノード保存型
 ハイドレーションの初期データ補完にも使える。
@@ -154,7 +121,7 @@ adopt パス（属性は要素順位の突き合わせ・reactive 子穴は `<!-
 
 ### 46. slot × ハイドレーション [未実装]
 
-（#23 から分離）adopt モードは **slot を使う Custom Element に未対応**。描画後の host 直下は
+adopt モードは **slot を使う Custom Element に未対応**。描画後の host 直下は
 投影済みの構造（setup の出力に slot 入力を差し込んだ形）になり、元の平らな slot 入力は残らない。
 採用するには `ctx.slot()` が「投影済み DOM の中の該当既存ノード」を突き合わせて返す機構（投影点の
 突き合わせ）が要るが未実装。現状は採用中の `ctx.slot()` は空を返し DEV 警告するだけ。第1弾の対象は
