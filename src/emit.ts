@@ -23,32 +23,15 @@
 //   自前の軽量トークナイザでチャンク＋穴に分ける。
 import { isRef, resolveEvent } from "./node.js";
 import { DEV, isSignal } from "./reactive.js";
+import { isSafeHtml, SafeHtml } from "./safe-html.js";
 
 /** 子穴（reactive）を囲む開閉コメント。node.ts の toNode が作るペアと同形にして wire を共用する。 */
 const HOLE_OPEN = "<!--hole-->";
 const HOLE_CLOSE = "<!--/hole-->";
 
-/**
- * 安全な（エスケープ済み・組み立て済みの）HTML 文字列を表す封筒。emit / サーバ用 `For` / `Show`
- * が組んだ HTML を、別の emit の子穴へ入れたときに **二重エスケープしない**ための実行時タグ。
- * 通常の文字列の子はデータ扱いでエスケープされるが、`SafeHtml` に包まれた文字列は既に HTML として
- * 組み立て済み（信頼境界の内側）なのでそのまま流す。`For` / `Show` のサーバ出力（#47）が使う。
- *
- * class にしてあるのは、(1) `instanceof` で実行時に確実に判別でき、(2) private フィールドにより
- * 型レベルでも nominal になる（プレーンな `{ html }` を `SafeHtml` として代入できない）ため。
- * 「エスケープ済みか否か」を文字列だけでは実行時に見分けられないので、このタグが原理的に要る。
- */
-export class SafeHtml {
-  constructor(private readonly value: string) {}
-  /** 包んでいる生 HTML 文字列を取り出す。 */
-  get html(): string {
-    return this.value;
-  }
-}
-/** 値が `SafeHtml`（エスケープ不要の組み立て済み HTML）かを判定する。 */
-export function isSafeHtml(v: unknown): v is SafeHtml {
-  return v instanceof SafeHtml;
-}
+// 生 HTML 封筒（`For` / `Show` のサーバ出力が使う）は safe-html.ts に置き、`./emit` から再公開する。
+export { isSafeHtml, SafeHtml };
+
 /**
  * `serializeChild` の非エスケープ版。`For` の各行・`Show` の枝（= `render` がサーバで返した
  * 既に組み立て済みの断片）を、エスケープせずプレーンな HTML 文字列にほどく。
@@ -154,8 +137,13 @@ function serializeChild(v: unknown): string {
   if (v == null || typeof v === "boolean") return ""; // 子の true / false はどちらも非表示
   if (Array.isArray(v)) return v.flat(Infinity).map(serializeChild).join("");
   if (typeof Node !== "undefined" && v instanceof Node) {
-    // DOM 非依存のため Node はシリアライズできない。SSR 第1弾はプリミティブな子のみが対象。
-    throw new Error("emit: Node の子はサポートしていません（SSR 第1弾はプリミティブのみ）");
+    // DOM 非依存のため DOM Node は文字列化できない。`document` のある環境（jsdom 等）では
+    // For / Show / ネストした html 断片は実 DOM を生成して emit に届くので、ここで気づける。
+    throw new Error(
+      "emit: DOM Node は文字列化できません。`document` のある環境（jsdom 等）では " +
+        "For / Show / ネストした html 断片は DOM を生成するため emit に乗りません。" +
+        "DOM 非依存のサーバで emit を実行するか、子を手組みの文字列で渡してください。",
+    );
   }
   return escapeText(String(v));
 }
