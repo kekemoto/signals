@@ -24,7 +24,10 @@ import { DEV, effect, isSignal } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
-const ATTR_RE = new RegExp(`${MARK}(\\d+)`, "g");
+// 部分埋め込み属性値を [静的, 穴番号, 静的, ...] に割る split 用。`g` フラグは split には
+// 不要なので付けない（lastIndex を持つ状態付き regex を避ける）。穴の有無の判定は
+// value.includes(MARK) で行う。
+const ATTR_SPLIT_RE = new RegExp(`${MARK}(\\d+)`);
 const COMMENT_RE = new RegExp(`^${MARK}(\\d+)$`);
 
 /**
@@ -139,9 +142,8 @@ function parse(strings: TemplateStringsArray): Descriptors {
         if (m) {
           holes.push({ kind: "attr", node, name, index: Number(m[1]) });
           dirty.push({ el, name });
-        } else if (ATTR_RE.test(value)) {
+        } else if (value.includes(MARK)) {
           // "btn ${...}" のような部分埋め込み
-          ATTR_RE.lastIndex = 0;
           holes.push({ kind: "attr-part", node, name, value });
           dirty.push({ el, name });
         }
@@ -290,7 +292,7 @@ function read(v: unknown): unknown {
  *  名前が `.foo` ならその文字列を DOM プロパティへ入れる（部分埋め込みは常に文字列になる）。 */
 function wireDynamicAttr(el: Element, name: string, value: string, values: unknown[]): void {
   const { key, set } = resolveSetter(name);
-  const parts = value.split(ATTR_RE); // [lit, idx, lit, idx, lit, ...]
+  const parts = value.split(ATTR_SPLIT_RE); // [lit, idx, lit, idx, lit, ...]
   const compose = () =>
     parts.map((p, i) => (i % 2 === 0 ? p : String(read(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
   // どれか1つでも関数 / シグナルなら毎回再計算、そうでなければ一度だけ設定する。
