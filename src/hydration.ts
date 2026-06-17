@@ -14,6 +14,8 @@
 //   明示引数では配線時まで「どの DOM を採用するか」を運べないので、Solid の hydration
 //   カーソルと同じくアンビエントな文脈に持たせ、各構築子が実行時に拾う。
 
+import { createRoot } from "./reactive.js";
+
 /** ハイドレーション中の採用カーソル。 */
 interface Cursor {
   /** 次に claimRoot で採用する候補ノード（兄弟方向＝nextSibling へ進む）。 */
@@ -44,6 +46,33 @@ export function runHydration<T>(container: Node, fn: () => T): T {
   } finally {
     cursor = prev;
   }
+}
+
+/**
+ * `defineElement` の adopt（ハイドレーション）モードを起動するマーカー属性。
+ * サーバはサーバ描画したカスタム要素の host にこの属性を付けて送る。クライアントの
+ * `connectedCallback` は属性があれば既存の light DOM（サーバが出した setup の出力）を
+ * 採用して配線し、無ければ通常どおり新規生成する。採用後はこの属性を strip する
+ * （docs/ssr-hydration-plan.md のマーカー後始末・stage 4）。
+ */
+export const HYDRATE_ATTR = "data-hydrate";
+
+/**
+ * ハイドレーションの公開エントリ（stage 4）。`container` の既存子（サーバが出した DOM）を
+ * 採用範囲として `fn`（html / For / Show を返すテンプレ）を実行し、reactive を配線する。
+ *   const dispose = hydrate(document.querySelector("#app")!, () => html`...`);
+ * - `createRoot` で所有ツリーを張るので、戻り値の dispose を呼べば配線した effect を畳める。
+ * - `fn` の中の html / For / Show は新規生成せず、既存ノードを claim して使い回す
+ *   （focus・入力値・スクロール等の DOM 状態を壊さない）。
+ * `runHydration` は採用カーソルを張るだけの素のプリミティブで、こちらは createRoot を
+ * 重ねて「公開 API・dispose 可能」にしたもの。defineElement の adopt モードは自前で
+ * createRoot を持つので `runHydration` を直接使う。
+ */
+export function hydrate(container: Node, fn: () => unknown): () => void {
+  return createRoot((dispose) => {
+    runHydration(container, fn);
+    return dispose;
+  });
 }
 
 /** 空白だけのテキストノードか（整形用の改行・インデントを採用時に読み飛ばすため）。 */

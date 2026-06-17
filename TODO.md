@@ -83,7 +83,7 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 `attachShadow` に切り替えられるようにする。マウント先を `host` か `shadowRoot` かに
 分岐するだけで、スタイル隔離が要るコンポーネントに対応できる。
 
-### 23. SSR / ハイドレーション [設計済み・未実装]
+### 23. SSR / ハイドレーション [第1弾ほぼ実装済み・残りは⑤state 直列化（任意）]
 
 `document` 前提・クライアントサイド専用。状態保存（ノード保存）型の真のハイドレーションを
 入れる方針で設計を確定した。詳細な引き継ぎ資料は `docs/ssr-hydration-plan.md`。
@@ -106,7 +106,13 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 adopt パス（属性は要素順位の突き合わせ・reactive 子穴は `<!--hole-->` を claim）、
 `for.ts` / `show.ts` に既存行 / 既存中身の採用分岐を追加。テストは `test/test-hydrate.ts`
 （ノード同一性 / childList 変化 0 件 / 採用後の reactivity・event / パリティ）】
-→ ④hydrate / defineElement adopt → ⑤state 直列化）。
+→ ④hydrate / defineElement adopt【実装済み: `src/hydration.ts` に公開エントリ `hydrate`
+（createRoot を重ねて dispose 可能にした採用ラッパ）と host マーカー `HYDRATE_ATTR`。
+`element.ts` の `connectedCallback` に adopt モード（マーカーがあれば既存子をクリアせず
+`runHydration` で setup の出力を配線し、append しない・採用後はマーカーを strip）。
+`index.ts` から `hydrate` / `HYDRATE_ATTR` を公開。slot 投影は adopt 時は非対象（サーバが
+投影済みの出力をそのまま採用）。テストは `test/test-hydrate.ts`】
+→ ⑤state 直列化【未実装・任意。単純 props を超える初期データ用の規約。必要になってから】）。
 テストは「文字列出力 / ハイドレーション（ノード同一性）/ パリティ」の 3 層。
 
 ---
