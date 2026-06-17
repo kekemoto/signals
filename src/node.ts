@@ -1,6 +1,6 @@
 // node.ts — 穴・子の値を DOM ノードへ変換する共通処理（h.ts / html.ts で共用）
 import { effect, isSignal, type Signal } from "./reactive.js";
-import { isSafeHtml } from "./safe-html.js";
+import { isEmittedHtml } from "./emitted-html.js";
 
 /**
  * reactive な入力を1つの accessor `() => T` に正規化する。
@@ -32,12 +32,12 @@ function updateRange(start: Comment, end: Comment, v: unknown): void {
 export function toNode(child: unknown): Node {
   // 真偽値はどちらも非表示（属性側の true=空文字 とは別。子では false/true とも何も描かない）。
   if (child == null || typeof child === "boolean") return document.createTextNode("");
-  // SafeHtml（emit 用の生 HTML 封筒）が DOM パスに紛れ込んだケース。素通しすると String(封筒) で
-  // `"[object Object]"` というテキストになって黙って壊れるので、ここで loud に止める。
-  if (isSafeHtml(child)) {
+  // EmittedHtml（emit が組み立てた生 HTML 封筒）が DOM パスに紛れ込んだケース。素通しすると
+  // String(封筒) で `"[object Object]"` というテキストになって黙って壊れるので、ここで loud に止める。
+  if (isEmittedHtml(child)) {
     throw new Error(
-      "html/h: SafeHtml（emit 用の生 HTML 封筒）は DOM に挿入できません。" +
-        "SafeHtml はサーバの emit 専用です。クライアントでは html`...` か文字列を渡してください。",
+      "html/h: EmittedHtml（emit が組み立てた生 HTML 封筒）は DOM に挿入できません。" +
+        "EmittedHtml は emit（サーバ）専用です。クライアントでは html`...` か文字列を渡してください。",
     );
   }
   if (isSignal(child)) child = toAccessor(child); // シグナル直接は関数に正規化

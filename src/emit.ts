@@ -23,24 +23,24 @@
 //   自前の軽量トークナイザでチャンク＋穴に分ける。
 import { isRef, resolveEvent } from "./node.js";
 import { DEV, isSignal } from "./reactive.js";
-import { isSafeHtml, SafeHtml } from "./safe-html.js";
+import { EmittedHtml, isEmittedHtml } from "./emitted-html.js";
 
 /** 子穴（reactive）を囲む開閉コメント。node.ts の toNode が作るペアと同形にして wire を共用する。 */
 const HOLE_OPEN = "<!--hole-->";
 const HOLE_CLOSE = "<!--/hole-->";
 
-// 生 HTML 封筒（`For` / `Show` のサーバ出力が使う）は safe-html.ts に置き、`./emit` から再公開する。
-export { isSafeHtml, SafeHtml };
+// 生 HTML 封筒（`For` / `Show` のサーバ出力が使う）は emitted-html.ts に置き、`./emit` から再公開する。
+export { EmittedHtml, isEmittedHtml };
 
 /**
  * `serializeChild` の非エスケープ版。`For` の各行・`Show` の枝（= `render` がサーバで返した
  * 既に組み立て済みの断片）を、エスケープせずプレーンな HTML 文字列にほどく。
- * `SafeHtml` 封筒なら中身を取り出し、null / 真偽は空、文字列はそのまま信頼して通す。
+ * `EmittedHtml` 封筒なら中身を取り出し、null / 真偽は空、文字列はそのまま信頼して通す。
  * 入力は render 済みの断片なので、`serializeChild` の関数 / signal / 配列の解決は要らない。
  */
 export function toHtml(v: unknown): string {
   if (v == null || typeof v === "boolean") return "";
-  if (isSafeHtml(v)) return v.html;
+  if (isEmittedHtml(v)) return v.html;
   return String(v);
 }
 
@@ -133,7 +133,7 @@ function styleString(obj: Record<string, unknown>): string {
 function serializeChild(v: unknown): string {
   if (typeof v === "function") return serializeChild((v as () => unknown)());
   if (isSignal(v)) return serializeChild(v.value);
-  if (isSafeHtml(v)) return v.html; // 組み立て済みの生 HTML（For / Show のサーバ出力）はそのまま
+  if (isEmittedHtml(v)) return v.html; // 組み立て済みの生 HTML（For / Show のサーバ出力）はそのまま
   if (v == null || typeof v === "boolean") return ""; // 子の true / false はどちらも非表示
   if (Array.isArray(v)) return v.flat(Infinity).map(serializeChild).join("");
   if (typeof Node !== "undefined" && v instanceof Node) {

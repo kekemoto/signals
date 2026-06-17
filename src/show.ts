@@ -9,7 +9,7 @@
 //   - when が真なら render() を、偽なら fallback() を表示する
 //   - 切り替え時に中身を createRoot で作り、消えるときは dispose（中の effect も止まる）
 //   - when の「真偽」が変わったときだけ作り直す（同じ間は据え置き）
-import { SafeHtml, toHtml } from "./emit.js";
+import { EmittedHtml, toHtml } from "./emit.js";
 import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal } from "./reactive.js";
@@ -42,7 +42,7 @@ export function Show<T>(
   // 入れても再エスケープされない。型は CSR と同じ DocumentFragment を名乗る（サーバ経路は実装詳細）。
   if (typeof document === "undefined") {
     const branch = whenFn() ? render(value) : fallback ? fallback() : null;
-    return new SafeHtml(`<!--show-->${toHtml(branch)}<!--/show-->`) as unknown as DocumentFragment;
+    return new EmittedHtml(`<!--show-->${toHtml(branch)}<!--/show-->`) as unknown as DocumentFragment;
   }
   // ハイドレーション中はサーバが出した `<!--show-->…<!--/show-->` を採用する（作り直さない）。
   const adopted = isHydrating() ? claimRange("show") : null;

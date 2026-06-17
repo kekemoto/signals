@@ -19,7 +19,7 @@ const { html } = await import("../src/html.js");
 const { For } = await import("../src/for.js");
 const { Show } = await import("../src/show.js");
 const { defineElement } = await import("../src/element.js");
-const { emit, SafeHtml } = await import("../src/emit.js");
+const { emit, EmittedHtml } = await import("../src/emit.js");
 
 const mount = () => {
   const el = document.createElement("div");
@@ -1077,10 +1077,10 @@ test("emit(a): document のある環境で For を渡すと真因を示すエラ
     "emit は DOM Node の子を、document のある環境の旨を添えて拒否する",
   );
 });
-test("toNode(b): SafeHtml 封筒を html の子に渡すと throw する（[object Object] のサイレント死を防ぐ）", () => {
+test("toNode(b): EmittedHtml 封筒を html の子に渡すと throw する（[object Object] のサイレント死を防ぐ）", () => {
   assert.throws(
-    () => html`<div>${new SafeHtml("<b>x</b>")}</div>`,
-    /SafeHtml/,
-    "SafeHtml は emit 専用で DOM には挿せない",
+    () => html`<div>${new EmittedHtml("<b>x</b>")}</div>`,
+    /EmittedHtml/,
+    "EmittedHtml は emit 専用で DOM には挿せない",
   );
 });

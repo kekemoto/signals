@@ -8,7 +8,7 @@
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
-import { SafeHtml, toHtml } from "./emit.js";
+import { EmittedHtml, toHtml } from "./emit.js";
 import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal, signal } from "./reactive.js";
@@ -45,7 +45,7 @@ export function For<T>(
         ),
       );
     }
-    return new SafeHtml(`<!--for-->${rows}<!--/for-->`) as unknown as DocumentFragment;
+    return new EmittedHtml(`<!--for-->${rows}<!--/for-->`) as unknown as DocumentFragment;
   }
   // ハイドレーション中はサーバが出した `<!--for-->…<!--/for-->` を採用する（作り直さない）。
   // 採用できたときは既存の行ノードを使い回し（initialRows）、初回 effect だけ render を
