@@ -48,10 +48,10 @@ export function isRawHtml(v: unknown): v is RawHtml {
   return typeof v === "object" && v !== null && (v as { [RAW]?: unknown })[RAW] === true;
 }
 /**
- * `escapeChild` の非エスケープ版。`For` の各行・`Show` の枝（= `render` がサーバで返した
+ * `serializeChild` の非エスケープ版。`For` の各行・`Show` の枝（= `render` がサーバで返した
  * 既に組み立て済みの断片）を、エスケープせずプレーンな HTML 文字列にほどく。
  * `RawHtml` 封筒なら中身を取り出し、null / 真偽は空、文字列はそのまま信頼して通す。
- * 入力は render 済みの断片なので、`escapeChild` の関数 / signal / 配列の解決は要らない。
+ * 入力は render 済みの断片なので、`serializeChild` の関数 / signal / 配列の解決は要らない。
  */
 export function rawChild(v: unknown): string {
   if (v == null || typeof v === "boolean") return "";
@@ -141,16 +141,16 @@ function styleString(obj: Record<string, unknown>): string {
 }
 
 /**
- * 子穴の値をエスケープ済み HTML 文字列にする。関数 / signal / 配列は再帰的に解決し、
- * null / 真偽値は空にする。素のプリミティブは XSS 対策でエスケープする。
- * エスケープしない版は `rawChild`（差はエスケープの一点だけ）。
+ * 子穴の値を HTML 文字列に直列化する（emit の子描画の主役）。関数 / signal / 配列は再帰的に
+ * 解決し、null / 真偽値は空にする。素のプリミティブは XSS 対策でエスケープする。
+ * エスケープしない変種は `rawChild`（For / Show のサーバ展開専用）。
  */
-function escapeChild(v: unknown): string {
-  if (typeof v === "function") return escapeChild((v as () => unknown)());
-  if (isSignal(v)) return escapeChild(v.value);
+function serializeChild(v: unknown): string {
+  if (typeof v === "function") return serializeChild((v as () => unknown)());
+  if (isSignal(v)) return serializeChild(v.value);
   if (isRawHtml(v)) return v.html; // 組み立て済みの生 HTML（For / Show のサーバ出力）はそのまま
   if (v == null || typeof v === "boolean") return ""; // 子の true / false はどちらも非表示
-  if (Array.isArray(v)) return v.flat(Infinity).map(escapeChild).join("");
+  if (Array.isArray(v)) return v.flat(Infinity).map(serializeChild).join("");
   if (typeof Node !== "undefined" && v instanceof Node) {
     // DOM 非依存のため Node はシリアライズできない。SSR 第1弾はプリミティブな子のみが対象。
     throw new Error("emit: Node の子はサポートしていません（SSR 第1弾はプリミティブのみ）");
@@ -161,7 +161,7 @@ function escapeChild(v: unknown): string {
 /** 子穴を出力する。reactive（関数 / signal）なら開閉ペアで囲み、静的なら素のテキストにする。 */
 function emitChild(raw: unknown): string {
   const reactive = typeof raw === "function" || isSignal(raw);
-  const content = escapeChild(raw);
+  const content = serializeChild(raw);
   return reactive ? HOLE_OPEN + content + HOLE_CLOSE : content;
 }
 
