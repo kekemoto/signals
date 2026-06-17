@@ -1,9 +1,9 @@
 # @kekemoto/signals
 
 **ビルド不要・依存ゼロで、ページにリアクティビティを“振りかける”ための小さなライブラリ。**
-`<script>` を1行足すだけで、signal ベースのリアクティブな DOM・Web Components・SSR
-ハイドレーションが使える。Alpine のような手軽さに、本物の signal と素直な書き心地を
-足したものを目指している。
+`<script>` を1行足すだけで、signal ベースのリアクティブな DOM や Web Components が
+書けて、SSR ハイドレーションもできる。Alpine のような手軽さに、本物の signal と
+素直な書き心地を足したものを目指している。
 
 - **ビルド不要** — トランスパイラもバンドラも要らない。`<script src>` か `import` で即動く。
 - **依存ゼロ** — ランタイム依存なし。TypeScript 製で型定義（`.d.ts`）を同梱。
