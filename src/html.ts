@@ -73,6 +73,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
  *   1. 穴に目印を埋めた HTML 文字列を組み立てる（タグの中なら値トークン、子位置ならコメント）。
  *   2. ブラウザに構造をパースさせる（穴は属性値 or コメントとして残る）。
  *   3. 走査して穴を分類し（属性 / 部分埋め込み / 子）、マーカー属性は template から除去する。
+ *
+ * inTag 走査はタグ / 引用符 / `<!-- -->` コメントを追う。`<script>` / `<textarea>` などの
+ * raw text 要素の中身（中の `<` を文字として扱う等）は **対象外**［割り切り］。これらの中に穴を
+ * 置く使い方は想定しない（コストに見合わないため非対応）。
  */
 function parse(strings: TemplateStringsArray): Descriptors {
   const hit = cache.get(strings);
@@ -82,21 +86,38 @@ function parse(strings: TemplateStringsArray): Descriptors {
   let src = "";
   let inTag = false; // 今 <...> の内側か（属性位置か）
   let quote = ""; // タグ内で開いている引用符（" か '）
+  let inComment = false; // 今 <!-- ... --> の内側か
   const holeCount = strings.length - 1; // タグ付きテンプレートでは values.length と一致
   for (let i = 0; i < strings.length; i++) {
     const s = strings[i];
     for (let j = 0; j < s.length; j++) {
       // 直前の静的文字列を走査して inTag を更新
       const c = s[j];
-      if (inTag) {
+      if (inComment) {
+        // コメント内は inTag / quote を一切触らず `-->` まで読み飛ばす。これが無いと
+        // コメント中の `>` で inTag を誤って閉じたり、`'`（it's など）で quote が開いて
+        // `-->` の `>` を飲み込み、以降の穴の属性/子の判定がずれる。
+        if (c === "-" && s.startsWith("-->", j)) {
+          inComment = false;
+          j += 2; // `-->` の残り2文字を飛ばす
+        }
+      } else if (inTag) {
         if (quote) {
           if (c === quote) quote = "";
         } else if (c === '"' || c === "'") quote = c;
         else if (c === ">") inTag = false;
-      } else if (c === "<") inTag = true;
+      } else if (c === "<") {
+        // 子位置の `<!--` はタグではなくコメント開始。タグと区別してコメントモードへ入る。
+        if (s.startsWith("<!--", j)) {
+          inComment = true;
+          j += 3; // `<!--` の残り3文字を飛ばす
+        } else inTag = true;
+      }
     }
     src += s;
-    if (i < holeCount) src += inTag ? `${MARK}${i}` : `<!--${MARK}${i}-->`;
+    // コメント内の穴（`<!-- ${x} -->`）は配線経路が無いので、属性でも子でもなく
+    // 不活性なテキストマーカーとして置き（コメント本文に紛れて無視される）。
+    if (i < holeCount) src += inTag || inComment ? `${MARK}${i}` : `<!--${MARK}${i}-->`;
   }
 
   // 2. ブラウザに構造をパースさせる。
