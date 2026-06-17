@@ -104,12 +104,15 @@ function parse(strings: TemplateStringsArray): Descriptors {
   //    （除去しても走査ノードの集合・順序は変わらないので wire 側のインデックスと揃う）。
   const holes: Hole[] = [];
   const dirty: Array<{ el: Element; name: string }> = [];
-  const walker = document.createTreeWalker(template.content, 0x1 | 0x80); // SHOW_ELEMENT | SHOW_COMMENT
+  const walker = document.createTreeWalker(
+    template.content,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
+  );
   let node = -1;
   while (walker.nextNode()) {
     node++;
     const n = walker.currentNode;
-    if (n.nodeType === 8) {
+    if (n.nodeType === Node.COMMENT_NODE) {
       // 子位置の穴（コメント）
       const m = (n as Comment).data.match(COMMENT_RE);
       if (m) holes.push({ kind: "child", node, index: Number(m[1]) });
@@ -162,7 +165,10 @@ function parse(strings: TemplateStringsArray): Descriptors {
 function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): void {
   // 走査して node 配列を作る（穴を処理して木を書き換える前に全ノード参照を確保する）。
   const nodes: Node[] = [];
-  const walker = document.createTreeWalker(content, 0x1 | 0x80);
+  const walker = document.createTreeWalker(
+    content,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
+  );
   while (walker.nextNode()) nodes.push(walker.currentNode);
 
   // 属性の穴を配線する。ref は木が完成した後に呼びたいので退避し、子穴の置換後にまとめて実行する。
@@ -226,17 +232,20 @@ function hydrate(desc: Descriptors, values: unknown[]): Node {
 function wireAdopt(desc: Descriptors, root: Element, values: unknown[]): void {
   // 元テンプレの「要素＋コメント走査インデックス → 要素だけの順位」を作る（属性穴の node 用）。
   const elemRank = new Map<number, number>();
-  const tw = document.createTreeWalker(desc.template.content, 0x1 | 0x80); // SHOW_ELEMENT | SHOW_COMMENT
+  const tw = document.createTreeWalker(
+    desc.template.content,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
+  );
   let combined = -1;
   let rank = -1;
   while (tw.nextNode()) {
     combined++;
-    if (tw.currentNode.nodeType === 1) elemRank.set(combined, ++rank);
+    if (tw.currentNode.nodeType === Node.ELEMENT_NODE) elemRank.set(combined, ++rank);
   }
   // 既存 DOM の要素を文書順で集める（ルート自身を先頭に含める）。元テンプレと著者 HTML が
   // 同じなので、この並びは elemRank の順位と一致する。
   const serverEls: Element[] = [root];
-  const sw = document.createTreeWalker(root, 0x1); // SHOW_ELEMENT
+  const sw = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
   while (sw.nextNode()) serverEls.push(sw.currentNode as Element);
   const elemAt = (node: number): Element => serverEls[elemRank.get(node)!];
 
@@ -297,7 +306,7 @@ function wireDynamicAttr(el: Element, name: string, value: string, values: unkno
 /** DocumentFragment の先頭・末尾にある空白だけのテキストノードを取り除く。 */
 function trimEdges(frag: DocumentFragment): void {
   const isBlank = (n: ChildNode | null) =>
-    n != null && n.nodeType === 3 && !/\S/.test(n.textContent || "");
+    n != null && n.nodeType === Node.TEXT_NODE && !/\S/.test(n.textContent || "");
   while (isBlank(frag.firstChild)) frag.firstChild!.remove();
   while (isBlank(frag.lastChild)) frag.lastChild!.remove();
 }

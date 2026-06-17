@@ -19,7 +19,7 @@ export function toAccessor<T>(v: Signal<T> | (() => T)): () => T {
 function updateRange(start: Comment, end: Comment, v: unknown): void {
   const cur = start.nextSibling;
   const isPrim = !(v instanceof Node) && !Array.isArray(v) && typeof v !== "function";
-  if (isPrim && cur !== end && cur?.nodeType === 3 && cur.nextSibling === end) {
+  if (isPrim && cur !== end && cur?.nodeType === Node.TEXT_NODE && cur.nextSibling === end) {
     (cur as Text).data = v == null || typeof v === "boolean" ? "" : String(v); // テキスト使い回し
     return;
   }

@@ -14,6 +14,7 @@ import { JSDOM } from "jsdom";
 const dom = new JSDOM("<!DOCTYPE html><body></body>");
 (globalThis as any).document = dom.window.document;
 (globalThis as any).Node = dom.window.Node;
+(globalThis as any).NodeFilter = dom.window.NodeFilter;
 (globalThis as any).HTMLElement = dom.window.HTMLElement;
 (globalThis as any).MutationObserver = dom.window.MutationObserver;
 (globalThis as any).customElements = dom.window.customElements;
