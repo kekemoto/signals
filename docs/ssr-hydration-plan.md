@@ -1,31 +1,9 @@
-# SSR / ハイドレーション 設計と実装状況
+# SSR / ハイドレーション 設計
 
-このドキュメントは「@kekemoto/signals の SSR とハイドレーション」の設計合意と、その**現在の
-実装状況**をまとめたもの。元は実装着手前の設計方針書だったが、**段階1〜4はすでに実装済み**。
-いまは「どう作るか」の方針・根拠と、「どのファイルがどの役割を担っているか」を記録する位置づけ。
-**未実装箇所の残課題（やることリスト）は TODO.md で管理する**（このドキュメントには列挙しない。
-ここに残すのは未実装部分の設計方針・根拠まで）。
-
-## 実装状況（サマリ）
-
-| 段階 | 内容 | 状況 | 主なファイル |
-|---|---|---|---|
-| ① | テンプレ解釈を `parse` → descriptors に分離（挙動不変・テンプレ単位キャッシュ） | **実装済み** | `src/html.ts` |
-| ② | `emit(descriptors, values)`：DOM 非依存の文字列エミッタ | **実装済み** | `src/emit.ts`（`./emit` エントリ）/ `test/test-emit.ts` |
-| ③ | `wire` を adopt 対応に（既存ノードを採用して作り直さない） | **実装済み** | `src/hydration.ts` / `src/node.ts`（`adoptChild`）/ `src/html.ts` / `src/for.ts` / `src/show.ts` |
-| ④ | `hydrate` エントリ ＋ `defineElement` の adopt モード | **実装済み** | `src/hydration.ts`（`hydrate` / `HYDRATE_ATTR`）/ `src/element.ts` |
-| ⑤ | 状態直列化（単純 props を超える初期データ） | **未実装・任意** | — （TODO #45 `jsonAttr` / `prop.json`） |
-
-公開 API（`src/index.ts`）: `emit` / `hydrate` / `HYDRATE_ATTR`。採用カーソルの素のプリミティブ
-（`runHydration` / `claimRoot` / `claimRange` / `withScope` / `withRoot` / `nodesBetween` /
-`isHydrating`）は `src/hydration.ts` 内部・テスト用で、index からは公開していない。
-
-未実装の残課題（state 直列化・slot × ハイドレーション・`emit` の `For` / `Show` / `Node` 子
-シリアライズ・サーバ orchestrator・mismatch 検出の強化など）は **TODO.md** で管理する。各課題の
-設計方針・根拠は本ドキュメントの該当節（「h / tags のハイドレーション」「非対象 / 留意」など）に残す。
-
-以下は設計の根拠（なぜこの構成にしたか）と、各ファイルの効きどころ。実装済みの今でも、
-変更時の判断材料として有効。
+このドキュメントは「@kekemoto/signals の SSR とハイドレーション」の設計合意をまとめたもの。
+「どう作るか」の方針・根拠と、設計上の注意点を記録する位置づけ。**前提・設計・根拠・注意点・参考**を
+中心に、いまの方針とこれからの判断材料を残す。残課題（やることリスト）は **TODO.md** で管理する
+（ここには列挙しない。残すのは設計方針・根拠まで）。
 
 ## ゴールと前提
 
@@ -39,34 +17,34 @@
   文字列を経由せず `createElement` で直接ノードを作るため、文字列エミッタの恩恵が無く別作業に
   なる。**第1弾のスコープ外**とし、`html` で枠組みを固めてから検討する。
 
-## アーキテクチャの効きどころ（設計の出発点）
+## 設計の効きどころ（なぜこの構成か）
 
-以下は「どこが設計の効きどころか」を示す（行番号は並行開発ですぐズレるので載せない。シンボル名で
-追うこと）。各項に**当初想定していた変更点**を書いてあるが、これらは段階3〜4で**実装済み**。
-「初回 adopt 分岐が要る」等の記述は当時の設計意図で、実際の対応は上の実装状況表のファイルにある。
+設計の効きどころを示す（行番号は並行開発ですぐズレるので載せない。シンボル名で追うこと）。
 
-- `src/html.ts`：`html()` は内部で**一度マーカー入り文字列を組み立て → `template.innerHTML` で
-  パース → TreeWalker で配線**、という流れ。**＝すでに「文字列 → パース → 配線」を通っている**のが
-  今回の設計が素直に乗る理由。穴は `inTag` 走査で属性位置 / 子位置を判定し、属性穴は `bindProp`、
-  部分埋め込み属性は `wireDynamicAttr`、子穴はコメントを `toNode(value)` で置換する。
+- `src/html.ts`：`html()` は内部で**マーカー入り文字列を組み立て → `template.innerHTML` で
+  パース → TreeWalker で配線**、という流れを通る。**＝すでに「文字列 → パース → 配線」を通っている**
+  ため、共有エミッタ方式が素直に乗る。穴は `inTag` 走査で属性位置 / 子位置を判定し、属性穴は
+  `bindProp`、部分埋め込み属性は `wireDynamicAttr`、子穴はコメントを `toNode(value)` で置換する。
 - `src/node.ts`：`bindProp` が**配線規則の集約点**（`onXxx`=イベント / `.foo`=DOM プロパティ /
   それ以外=属性、関数・signal は accessor 化して effect）。子穴の `toNode` は `<!--hole-->…
-  <!--/hole-->` のコメント対で範囲を作り effect で再描画するが、**初回 effect で既存ノードを消して
-  作り直す** —— ここがハイドレーションを壊す核心で、「初回だけ adopt」分岐が要る。
+  <!--/hole-->` のコメント対で範囲を作り effect で再描画する。新規描画では初回 effect で子を
+  作るが、**ハイドレーションでは「初回だけ既存ノードを adopt する」分岐が核心**になる。
 - `src/element.ts`：`defineElement` は `connectedCallback` で `createRoot` → `setup` → 返り値を
   host 直下（light DOM）へ append。`ctx.prop(name)` が属性 / DOM プロパティ両入力を 1 つの signal に
-  合流。**現状は host の中身を作り直す前提**（既存子は slot 入力として退避するだけ）なので、
-  「消さずに adopt」するモードが要る。
-- `src/for.ts` / `src/show.ts`：`<!--for-->` / `<!--show-->` のコメント対で範囲を持ち、初回 effect で
-  全行 / 中身を新規生成する。これも「初回 adopt」分岐が要る。
+  合流させる。ハイドレーションでは「**消さずに adopt** する」モードが要る（既存子を slot 入力として
+  退避するだけの通常経路と分ける）。slot 投影との整合に注意。
+- `src/for.ts` / `src/show.ts`：`<!--for-->` / `<!--show-->` のコメント対で範囲を持つ。新規描画は
+  初回 effect で全行 / 中身を生成するが、**ハイドレーションでは「初回 adopt」分岐**で既存行 /
+  既存中身を採用する。
 - `src/reactive.ts`：`signal` / `effect` / `createRoot` / `getOwner` / `runWithOwner` 等。
-  fine-grained なので**サーバでは effect 不要**（値を 1 回読むだけ）という性質が今回の鍵。
+  fine-grained なので**サーバでは effect 不要**（値を 1 回読むだけ）という性質が設計の鍵。
 
-すべて `document` / `customElements` / `MutationObserver` 等のブラウザ API に直結している。
+これらはいずれも `document` / `customElements` / `MutationObserver` 等のブラウザ API に直結して
+いるため、**サーバ経路はこれらを避ける**必要がある（→ 注意点 8）。
 
 ## 採用する設計：共有エミッタ + 配線統一 + 境界は Custom Element
 
-検討の結論として、**真のハイドレーションをやる場合の最小構成**は次の組み合わせ。
+**真のハイドレーションをやる場合の最小構成**は次の組み合わせ。
 
 ### 1. テンプレ解釈を 1 回だけ行い、3 つの部品に分ける
 
@@ -87,9 +65,9 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
   （イベントハンドラ）と effect（reactive 属性 / 子）を張る。**新規描画もハイドレーションも
   この同一パスを使う**（違いは「木の出所」だけ）。
 
-これにより、当初懸念していた「DOM 構築版とサーバ文字列版でテンプレ解釈が二重実装になる」
-問題が解消する。残るのは wire パス（＝文字列に焼けないクロージャ / effect を張る不可避の一手）
-だが、これはエミッタの複製ではなく補完であり、しかも create と hydrate を統一する。
+これにより「DOM 構築版とサーバ文字列版でテンプレ解釈が二重実装になる」問題が解消する。
+残るのは wire パス（＝文字列に焼けないクロージャ / effect を張る不可避の一手）だが、これは
+エミッタの複製ではなく補完であり、しかも create と hydrate を統一する。
 
 ### 2. クライアントの 3 フローが 1 本に畳まれる
 
@@ -111,24 +89,22 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
 - **初期 props** = 属性 / DOM プロパティ（`ctx.prop()` が既に signal に合流）。HTML に自然に
   残るので別 state ブロブが原則不要。複雑な初期データが要る場合のみ、`<script type="application/json">`
   等での直列化規約を別途定義する（第1弾では単純 props のみを対象に）。
-- `defineElement` 側は「接続時に既存の light DOM の子を**消さず adopt** する」モードを足す。
-  現状の `connectedCallback` は append で組み立てるので、ハイドレーション
-  中は setup の出力を新規生成せず既存子に `wire` する経路に切り替える。slot 投影との整合に注意。
+- `defineElement` 側は「接続時に既存の light DOM の子を**消さず adopt** する」モードを持つ。
+  通常の `connectedCallback` は append で組み立てるので、ハイドレーション中は setup の出力を
+  新規生成せず既存子に `wire` する経路に切り替える。slot 投影との整合に注意。
 
-## エミッタが背負う実装上の注意（漏れなく）
+## エミッタが背負う注意点（漏れなく）
 
 二重実装ではないが、共有エミッタ内部で面倒を見る必要がある点。
 
-1. **エスケープ**：現状のマーカー組み立ては値を入れないのでエスケープが無い。
-   値を吐くなら本文 `<` `&`、属性値 `"` `&` のエスケープを必須にする（XSS）。`wire` 側は
-   既存の `setAttr` / `setProp` を使うのでエスケープ不要（DOM API が処理する）。
+1. **エスケープ**：値を吐くなら本文 `<` `&`、属性値 `"` `&` のエスケープを必須にする（XSS）。
+   `wire` 側は既存の `setAttr` / `setProp` を使うのでエスケープ不要（DOM API が処理する）。
 2. **イベント穴は値を出さない**：サーバ HTML に `onclick="…"` を焼かない。`wire` が要素を
    見つけられる**最小マーカー**（例：`data-hk` 的な属性、または既存のコメント方式）だけ出し、
    `wire` が `addEventListener` する（`bindProp` / `resolveEvent` の規則を再利用）。
-3. **子穴は「開閉ペア」のマーカー**：現状の単発置換コメント `<!--signals-hole-N-->`
-   では adopt 時に範囲を復元できない。`toNode` が使う
-   `<!--hole-->…<!--/hole-->` と同様の**対**で出し、`wire` がその間を担当
-   ノードと認識して effect を張り直す。`For` / `Show` のコメント対も同様に出力へ残す。
+3. **子穴は「開閉ペア」のマーカー**：単発置換コメント `<!--signals-hole-N-->` では adopt 時に
+   範囲を復元できない。`toNode` が使う `<!--hole-->…<!--/hole-->` と同様の**対**で出し、`wire`
+   がその間を担当ノードと認識して effect を張り直す。`For` / `Show` のコメント対も同様に出力へ残す。
 4. **reactive 属性 / 子の初期値**：サーバは「計算後の初期値」を埋める（関数を 1 回呼ぶ /
    signal を 1 回読む。effect は張らない）。`wire` 側で effect をセットアップする。
    **サーバとクライアントで初期値が一致**することが mismatch を防ぐ前提。
@@ -140,54 +116,28 @@ wire(descriptors, root)   → effect/event  // ブラウザのみ。新規描画
    （descriptors を共有していれば自然に揃う）。
 8. **サーバ環境ガード**：サーバビルドは `document` / `customElements` に触れてはいけない。
    `emit` は純粋に文字列を作る関数として **DOM API を一切呼ばない**よう実装する
-   （`template.innerHTML` を経由しない別経路）。`defineElement` の `customElements.define`
-   `defineElement` の `customElements.define` はサーバで死ぬので、サーバ用エントリから切り離すか
-   遅延ガードする。
+   （`template.innerHTML` を経由しない別経路）。`defineElement` の `customElements.define` は
+   サーバで死ぬので、サーバ用エントリから切り離すか遅延ガードする。
 
 先行例として **Lit の `@lit-labs/ssr`** がこの方式そのもの（コメント / 属性マーカーを吐き、
 ハイドレーション時に拾って strip）。設計判断に迷ったら lit のマーカー戦略を参照する。
 
-## 段階的な実装計画と実装結果
-
-1. **descriptors への分離（リファクタ）** — **実装済み**。`src/html.ts` の解釈部を
-   `parse(strings)` → `Descriptors`（`template` ＋ `holes`）に切り出し、DOM 構築を
-   `wire(desc, content, values)` に置き換えた。挙動は不変。`WeakMap` でテンプレ単位にキャッシュ。
-2. **`emit(descriptors, values)` の追加** — **実装済み**。`src/emit.ts`（`./emit` エントリ）。
-   ただし `html.ts` の descriptors は再利用せず、**DOM 非依存の自前トークナイザ**で別経路で解釈する
-   形に落ち着いた（パリティテストで構造一致を担保。二重実装の扱いは TODO #51）。エスケープ・
-   イベント / `ref` / プロパティ穴のスキップ・子穴の開閉ペア・属性の値埋め・部分埋め込みを実装。
-3. **`wire` を adopt 対応に** — **実装済み**。採用カーソルを `src/hydration.ts` に置き
-   （`isHydrating` / `runHydration` / `claimRoot` / `claimRange` / `withScope` / `withRoot` /
-   `nodesBetween`）、アンビエント文脈で create / adopt を切り替える。`src/node.ts` に `adoptChild`
-   （`toNode` の adopt 版・初回は DOM を触らず採用）、`src/html.ts` に adopt パス（属性は要素順位の
-   突き合わせ・reactive 子穴は `<!--hole-->` を claim）、`src/for.ts` / `src/show.ts` に既存行 /
-   既存中身の採用分岐を追加。テストは `test/test-hydrate.ts`。
-4. **`hydrate` エントリ + `defineElement` の adopt モード** — **実装済み**。`src/hydration.ts` に
-   公開エントリ `hydrate`（`createRoot` を重ねて dispose 可能にした採用ラッパ）と host マーカー
-   `HYDRATE_ATTR`（`"data-hydrate"`）。`src/element.ts` の `connectedCallback` にマーカーがあれば
-   既存子をクリアせず `runHydration` で配線し append しない adopt モードを追加（採用後はマーカーを
-   strip）。slot 投影は adopt 時は非対象（#46）。
-5. **状態直列化（必要なら）** — **未実装・任意**。単純 props を超える初期データ用の規約（#45）。
-
 ## テスト方針
 
-3 層で考える（既存の core=DOM 不要 / dom=jsdom 注入 の 2 系統に 1 層足す形）。①は
-`test/test-emit.ts`（`npm test` で実行・jsdom 不要）、②③は `test/test-hydrate.ts`
-（`npm run test:dom` で実行・jsdom 必要）に実装済み。
+3 層で考える（既存の core=DOM 不要 / dom=jsdom 注入 の 2 系統に 1 層足す形）。
 
-- **① 文字列出力テスト（軽量・DOM 不要）** — `test/test-emit.ts`。`emit` の出力 HTML を assert。
-  初期値が 1 回だけ埋まっているか、境界 / マーカーが残っているか、エスケープ（XSS）が効くか、
-  採番が決定的か。
-- **② ハイドレーションテスト（jsdom）** — `test/test-hydrate.ts`。サーバ HTML を
-  `container.innerHTML` に据え、掴んでおいた既存ノードと `hydrate` 後のノードが**同一（`===`）**で
-  あること（＝作り直していない証拠）。`hydrate` 中の childList ミューテーションが 0 件（属性 /
-  リスナ付与のみ）であること。配線後に signal 更新でテキスト更新・`click` でハンドラ発火すること。
-  `For` / `Show` / `defineElement` の adopt もここでカバー。
-- **③ パリティテスト** — `test/test-hydrate.ts`。`emit` の構造と、クライアント単独描画
-  （`html` の `outerHTML`）の構造が一致すること（mismatch を回帰として捕捉）。
+- **① 文字列出力テスト（軽量・DOM 不要）** — `emit` の出力 HTML を assert。初期値が 1 回だけ
+  埋まっているか、境界 / マーカーが残っているか、エスケープ（XSS）が効くか、採番が決定的か。
+- **② ハイドレーションテスト（jsdom）** — サーバ HTML を `container.innerHTML` に据え、掴んで
+  おいた既存ノードと `hydrate` 後のノードが**同一（`===`）**であること（＝作り直していない証拠）。
+  `hydrate` 中の childList ミューテーションが 0 件（属性 / リスナ付与のみ）であること。配線後に
+  signal 更新でテキスト更新・`click` でハンドラ発火すること。`For` / `Show` / `defineElement`
+  の adopt もカバー。
+- **③ パリティテスト** — `emit` の構造と、クライアント単独描画（`html` の `outerHTML`）の構造が
+  一致すること（mismatch を回帰として捕捉）。
 - **Custom Element のハイドレーションは jsdom だと弱い**（アップグレードのタイミング / light DOM
   投影が実ブラウザと差が出る）。`defineElement` 周りは jsdom で基本動作を見つつ、込み入った検証は
-  **Playwright 等の実ブラウザ**に逃がすのが望ましい（実ブラウザテストは未整備）。
+  **Playwright 等の実ブラウザ**に逃がすのが望ましい。
 
 ## h / tags のハイドレーション（未決定・両論併記）
 
