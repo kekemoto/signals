@@ -73,6 +73,10 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Node 
  *   1. 穴に目印を埋めた HTML 文字列を組み立てる（タグの中なら値トークン、子位置ならコメント）。
  *   2. ブラウザに構造をパースさせる（穴は属性値 or コメントとして残る）。
  *   3. 走査して穴を分類し（属性 / 部分埋め込み / 子）、マーカー属性は template から除去する。
+ *
+ * inTag 走査はタグ / 引用符 / `<!-- -->` コメントを追う。`<script>` / `<textarea>` などの
+ * raw text 要素の中身（中の `<` を文字として扱う等）は **対象外**［割り切り］。これらの中に穴を
+ * 置く使い方は想定しない（コストに見合わないため非対応）。
  */
 function parse(strings: TemplateStringsArray): Descriptors {
   const hit = cache.get(strings);
