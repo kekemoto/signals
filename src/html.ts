@@ -18,6 +18,7 @@
 //     新規描画もハイドレーションも将来この同一パスを共有する。
 //   この段では挙動は従来どおり（解釈を 1 回に畳んでキャッシュするだけ）。
 
+import { RANGE } from "./emitted-html.js";
 import { claimRange, claimRoot, isHydrating, withScope } from "./hydration.js";
 import { adoptChild, bindProp, isRef, resolveSetter, toNode } from "./node.js";
 import { DEV, effect, isSignal } from "./reactive.js";
@@ -293,7 +294,7 @@ function wireAdopt(desc: Descriptors, root: Element, values: unknown[]): void {
     if (hole.kind !== "child") continue;
     const v = values[hole.index];
     if (!(typeof v === "function" || isSignal(v))) continue; // 静的な子はサーバ出力のまま
-    const range = claimRange("hole");
+    const range = claimRange(RANGE.hole);
     if (range) adoptChild(range.start, range.end, v);
     else if (DEV)
       console.warn(

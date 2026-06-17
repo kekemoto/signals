@@ -31,3 +31,23 @@ export class EmittedHtml {
 export function isEmittedHtml(v: unknown): v is EmittedHtml {
   return v instanceof EmittedHtml;
 }
+
+/**
+ * 範囲マーカー名。サーバ文字列出力の `<!--name-->…<!--/name-->`・`document.createComment(name)`・
+ * `claimRange(name)` の3者が**同じ名前**を使うよう一元化する（片方だけ書き換えてドリフトすると
+ * claimRange が範囲を拾えずハイドレーションが黙って再構築に落ちるのを防ぐ）。
+ */
+export const RANGE = { hole: "hole", for: "for", show: "show" } as const;
+
+/** 範囲の開きコメント文字列 `<!--name-->`（サーバ文字列出力用）。 */
+export const rangeOpen = (name: string): string => `<!--${name}-->`;
+/** 範囲の閉じコメント文字列 `<!--/name-->`（サーバ文字列出力用）。 */
+export const rangeClose = (name: string): string => `<!--/${name}-->`;
+
+/**
+ * `inner`（組み立て済みの HTML 文字列）を `<!--name-->…<!--/name-->` で囲んだ生 HTML 封筒を返す。
+ * `For` / `Show` のサーバ出力が使う。adopt 側の `claimRange(name)` が拾うのと同形。型は CSR と同じ
+ * `DocumentFragment` を名乗る（サーバ経路は実装詳細で、この封筒→DocumentFragment のキャストはここ一箇所）。
+ */
+export const emitRange = (name: string, inner: string): DocumentFragment =>
+  new EmittedHtml(rangeOpen(name) + inner + rangeClose(name)) as unknown as DocumentFragment;

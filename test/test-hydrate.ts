@@ -171,7 +171,7 @@ test("hydrate: 複数の reactive 子穴が順番どおり採用される", () =
 });
 
 // === For の採用 ===
-// emit の For シリアライズ（#47）は DOM 無し環境でのみ働く（`typeof document === "undefined"`）。
+// emit の For シリアライズは DOM 無し環境でのみ働く（`typeof document === "undefined"`）。
 // この採用テストは jsdom 上（document あり）なので、サーバ相当の HTML は手組みする。手組みの
 // 文字列は emit の For 出力（test-emit.ts で固定）と同形＝パリティはそちらで担保している。
 test("For: 既存行を採用し、作り直さず reactive に動く", () => {

@@ -22,13 +22,13 @@
 //   import できる。テンプレ解釈は `html.ts` の DOM パース（`template.innerHTML`）を通らない別経路で、
 //   自前の軽量トークナイザでチャンク＋穴に分ける。
 
-import { EmittedHtml, isEmittedHtml } from "./emitted-html.js";
+import { EmittedHtml, isEmittedHtml, RANGE, rangeClose, rangeOpen } from "./emitted-html.js";
 import { isRef, resolveEvent } from "./node.js";
 import { DEV, isSignal } from "./reactive.js";
 
-/** 子穴（reactive）を囲む開閉コメント。node.ts の toNode が作るペアと同形にして wire を共用する。 */
-const HOLE_OPEN = "<!--hole-->";
-const HOLE_CLOSE = "<!--/hole-->";
+/** 子穴（reactive）を囲む開閉コメント。node.ts の toNode・claimRange と同じ RANGE 名から導く。 */
+const HOLE_OPEN = rangeOpen(RANGE.hole);
+const HOLE_CLOSE = rangeClose(RANGE.hole);
 
 // 生 HTML 封筒（`For` / `Show` のサーバ出力が使う）は emitted-html.ts に置き、`./emit` から再公開する。
 export { EmittedHtml, isEmittedHtml };

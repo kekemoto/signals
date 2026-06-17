@@ -1,6 +1,6 @@
 // node.ts — 穴・子の値を DOM ノードへ変換する共通処理（h.ts / html.ts で共用）
 
-import { isEmittedHtml } from "./emitted-html.js";
+import { isEmittedHtml, RANGE } from "./emitted-html.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
 
 /**
@@ -46,8 +46,8 @@ export function toNode(child: unknown): Node {
     // コメント2つで範囲を作り、返り値が何であれその間を再描画する。
     // Node / 配列を返せば構造ごと入れ替わる（${() => list.value.map(...)} が書ける）。
     // 中で張られた effect は所有権ツリーが再実行時に自動 dispose する。
-    const start = document.createComment("hole");
-    const end = document.createComment("/hole");
+    const start = document.createComment(RANGE.hole);
+    const end = document.createComment(`/${RANGE.hole}`);
     const frag = document.createDocumentFragment();
     frag.append(start, end);
     effect(() => updateRange(start, end, (child as () => unknown)()));

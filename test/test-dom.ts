@@ -1089,7 +1089,7 @@ test("Show: signal 直渡し", () => {
   );
 });
 
-// === 環境取り違えガード（#47 (a)(b)）===
+// === 環境取り違えガード（emit 側 / DOM 側の両境界）===
 // emit の For / Show 文字列化は `document` の無いサーバ専用。document のある環境（この jsdom）で
 // emit に For / Show / ネスト html を渡すと、それらは実 DOM を作るので emit に乗らない。
 // (a) emit 側・(b) DOM 側の両境界で、サイレントに壊れず分かりやすいエラーで止まることを担保する。
