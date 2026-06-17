@@ -21,9 +21,10 @@
 //   DOM に触れない `reactive.ts` / `node.ts` の純粋関数だけ）。サーバ / SSG ビルドからそのまま
 //   import できる。テンプレ解釈は `html.ts` の DOM パース（`template.innerHTML`）を通らない別経路で、
 //   自前の軽量トークナイザでチャンク＋穴に分ける。
+
+import { EmittedHtml, isEmittedHtml } from "./emitted-html.js";
 import { isRef, resolveEvent } from "./node.js";
 import { DEV, isSignal } from "./reactive.js";
-import { EmittedHtml, isEmittedHtml } from "./emitted-html.js";
 
 /** 子穴（reactive）を囲む開閉コメント。node.ts の toNode が作るペアと同形にして wire を共用する。 */
 const HOLE_OPEN = "<!--hole-->";

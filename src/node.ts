@@ -1,6 +1,7 @@
 // node.ts — 穴・子の値を DOM ノードへ変換する共通処理（h.ts / html.ts で共用）
-import { effect, isSignal, type Signal } from "./reactive.js";
+
 import { isEmittedHtml } from "./emitted-html.js";
+import { effect, isSignal, type Signal } from "./reactive.js";
 
 /**
  * reactive な入力を1つの accessor `() => T` に正規化する。

@@ -42,7 +42,9 @@ export function Show<T>(
   // 入れても再エスケープされない。型は CSR と同じ DocumentFragment を名乗る（サーバ経路は実装詳細）。
   if (typeof document === "undefined") {
     const branch = whenFn() ? render(value) : fallback ? fallback() : null;
-    return new EmittedHtml(`<!--show-->${toHtml(branch)}<!--/show-->`) as unknown as DocumentFragment;
+    return new EmittedHtml(
+      `<!--show-->${toHtml(branch)}<!--/show-->`,
+    ) as unknown as DocumentFragment;
   }
   // ハイドレーション中はサーバが出した `<!--show-->…<!--/show-->` を採用する（作り直さない）。
   const adopted = isHydrating() ? claimRange("show") : null;
