@@ -10,6 +10,23 @@ export function toAccessor<T>(v: Signal<T> | (() => T)): () => T {
   return isSignal(v) ? () => v.value : v;
 }
 
+/**
+ * `<!--hole-->`〜`<!--/hole-->` の範囲（start / end）を、値 v に合わせて描き替える。
+ * プリミティブで既存が単一テキストならそのテキストを使い回し（DOM 構造を変えない）、
+ * そうでなければ範囲を空にして toNode(v) を入れ直す。新規描画（toNode）と採用（adoptChild）の
+ * 「2回目以降の更新」で共通の核（create / adopt で挙動を1か所に揃える）。
+ */
+function updateRange(start: Comment, end: Comment, v: unknown): void {
+  const cur = start.nextSibling;
+  const isPrim = !(v instanceof Node) && !Array.isArray(v) && typeof v !== "function";
+  if (isPrim && cur !== end && cur?.nodeType === 3 && cur.nextSibling === end) {
+    (cur as Text).data = v == null || typeof v === "boolean" ? "" : String(v); // テキスト使い回し
+    return;
+  }
+  while (start.nextSibling && start.nextSibling !== end) (start.nextSibling as ChildNode).remove();
+  end.before(toNode(v));
+}
+
 /** 値を1つの Node に変換する。関数 / シグナルは reactive な範囲、配列はまとめて並べる。 */
 export function toNode(child: unknown): Node {
   // 真偽値はどちらも非表示（属性側の true=空文字 とは別。子では false/true とも何も描かない）。
@@ -23,18 +40,7 @@ export function toNode(child: unknown): Node {
     const end = document.createComment("/hole");
     const frag = document.createDocumentFragment();
     frag.append(start, end);
-    effect(() => {
-      const v = (child as () => unknown)();
-      const cur = start.nextSibling;
-      const isPrim = !(v instanceof Node) && !Array.isArray(v) && typeof v !== "function";
-      if (isPrim && cur !== end && cur?.nodeType === 3 && cur.nextSibling === end) {
-        (cur as Text).data = v == null || typeof v === "boolean" ? "" : String(v); // テキスト使い回し
-        return;
-      }
-      while (start.nextSibling && start.nextSibling !== end)
-        (start.nextSibling as ChildNode).remove();
-      end.before(toNode(v));
-    });
+    effect(() => updateRange(start, end, (child as () => unknown)()));
     return frag;
   }
   if (child instanceof Node) return child;
@@ -44,6 +50,27 @@ export function toNode(child: unknown): Node {
     return frag;
   }
   return document.createTextNode(String(child));
+}
+
+/**
+ * toNode の「adopt（採用）」版。サーバが出した既存の `<!--hole-->…<!--/hole-->` を start / end
+ * として受け取り、**作り直さずに** reactive 子穴の effect を張り直す（docs の段階3）。
+ * 初回の effect 実行では依存だけ購読して DOM は書かない（サーバ出力＝クライアント初期値が
+ * 一致している前提なので、既存ノードをそのまま使う＝focus / 入力値 / スクロールを壊さない）。
+ * 2回目以降は toNode と同じ updateRange で更新する。reactive な子（関数 / signal）専用で、
+ * 静的な子はそもそもマーカーが無く配線不要なので呼ばれない。
+ */
+export function adoptChild(start: Comment, end: Comment, child: unknown): void {
+  if (isSignal(child)) child = toAccessor(child); // signal 直渡しは関数に正規化（toNode と同じ）
+  let first = true;
+  effect(() => {
+    const v = (child as () => unknown)();
+    if (first) {
+      first = false;
+      return; // 初回はサーバ出力をそのまま採用（DOM は触らない）。依存購読だけ済ませる。
+    }
+    updateRange(start, end, v);
+  });
 }
 
 /** class / style のオブジェクト形式かを見分ける（配列・null・Node は除く）。

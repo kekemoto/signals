@@ -100,8 +100,14 @@ light DOM 専用（スタイルはページ側、`<slot>` なし）。
 → ②emit 追加【実装済み: `src/emit.ts`（`./emit` エントリ）。DOM 非依存の文字列エミッタ。
 値埋め・エスケープ・イベント / ref / プロパティ穴のスキップ・子穴の開閉ペア・部分埋め込みを実装。
 テストは `test/test-emit.ts`】
-→ ③wire を adopt 対応 → ④hydrate / defineElement adopt →
-⑤state 直列化）。テストは「文字列出力 / ハイドレーション（ノード同一性）/ パリティ」の 3 層。
+→ ③wire を adopt 対応【実装済み: `src/hydration.ts`（採用カーソル: `isHydrating` /
+`runHydration` / `claimRoot` / `claimRange` / `withScope` / `withRoot` / `nodesBetween`）。
+`node.ts` に `adoptChild`（toNode の adopt 版・初回は DOM を触らず採用）、`html.ts` に
+adopt パス（属性は要素順位の突き合わせ・reactive 子穴は `<!--hole-->` を claim）、
+`for.ts` / `show.ts` に既存行 / 既存中身の採用分岐を追加。テストは `test/test-hydrate.ts`
+（ノード同一性 / childList 変化 0 件 / 採用後の reactivity・event / パリティ）】
+→ ④hydrate / defineElement adopt → ⑤state 直列化）。
+テストは「文字列出力 / ハイドレーション（ノード同一性）/ パリティ」の 3 層。
 
 ---
 
