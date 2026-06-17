@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { emit } from "../src/emit.js";
+import { emit, toHtml } from "../src/emit.js";
 import { For } from "../src/for.js";
 import { signal } from "../src/reactive.js";
 import { Show } from "../src/show.js";
@@ -223,6 +223,20 @@ test("emit: Show は真だった値を accessor で render に渡す", () => {
     )}</div>`,
     "<div><!--show--><p><!--hole-->Bob<!--/hole--></p><!--/show--></div>",
   );
+});
+
+// === toHtml（For / Show の行・枝のほどき）===
+test('toHtml: 配列は join("") で連結する（カンマを入れない）', () => {
+  // serializeChild と挙動を揃える。素の String(array) だと "a,b" になる退行を防ぐ。
+  assert.equal(toHtml(["<li>a</li>", "<li>b</li>"]), "<li>a</li><li>b</li>");
+});
+test("toHtml: null / 真偽は空、文字列・EmittedHtml は生のまま", () => {
+  assert.equal(toHtml(null), "");
+  assert.equal(toHtml(undefined), "");
+  assert.equal(toHtml(true), "");
+  assert.equal(toHtml(false), "");
+  // 素の文字列は emit が組んだ HTML として再エスケープせず通す（#58 まではこの信頼が残る）。
+  assert.equal(toHtml("<li>x</li>"), "<li>x</li>");
 });
 
 // === Node の子は未対応（DOM 非依存スコープ）===

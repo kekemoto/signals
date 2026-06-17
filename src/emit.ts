@@ -36,12 +36,19 @@ export { EmittedHtml, isEmittedHtml };
 /**
  * `serializeChild` の非エスケープ版。`For` の各行・`Show` の枝（= `render` がサーバで返した
  * 既に組み立て済みの断片）を、エスケープせずプレーンな HTML 文字列にほどく。
- * `EmittedHtml` 封筒なら中身を取り出し、null / 真偽は空、文字列はそのまま信頼して通す。
- * 入力は render 済みの断片なので、`serializeChild` の関数 / signal / 配列の解決は要らない。
+ * `EmittedHtml` 封筒なら中身を取り出し、配列は `serializeChild` と同じく join("") で連結、
+ * null / 真偽は空、文字列はそのまま信頼して通す。入力は render 済みの断片なので、
+ * `serializeChild` の関数 / signal の解決は要らない（配列だけは多ノード行のため揃える）。
+ *
+ * 注意（#58）: 素の文字列は「emit が組んだ HTML」として**再エスケープせず**通す。`emit` の戻り値が
+ * 文字列である現状、データ文字列と emit 出力を実行時に区別できないため（区別すると emit 出力が
+ * 二重エスケープされる）。よって render が素のデータ文字列を返すとサーバで未エスケープ注入に
+ * なりうる。これを型で塞ぐ（emit を安全型返しにし render を `Node | EmittedHtml` に締める）のは #58。
  */
 export function toHtml(v: unknown): string {
   if (v == null || typeof v === "boolean") return "";
   if (isEmittedHtml(v)) return v.html;
+  if (Array.isArray(v)) return v.flat(Infinity).map(toHtml).join(""); // 多ノード行: serializeChild と揃える
   return String(v);
 }
 
