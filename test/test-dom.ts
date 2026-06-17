@@ -20,6 +20,7 @@ const { html } = await import("../src/html.js");
 const { For } = await import("../src/for.js");
 const { Show } = await import("../src/show.js");
 const { defineElement } = await import("../src/element.js");
+const { emit, EmittedHtml } = await import("../src/emit.js");
 
 const mount = () => {
   const el = document.createElement("div");
@@ -1085,5 +1086,30 @@ test("Show: signal 直渡し", () => {
   assert.ok(
     !el.querySelector(".yes") && !!el.querySelector(".no"),
     "Show: signal 直渡し false で fallback",
+  );
+});
+
+// === 環境取り違えガード（emit 側 / DOM 側の両境界）===
+// emit の For / Show 文字列化は `document` の無いサーバ専用。document のある環境（この jsdom）で
+// emit に For / Show / ネスト html を渡すと、それらは実 DOM を作るので emit に乗らない。
+// (a) emit 側・(b) DOM 側の両境界で、サイレントに壊れず分かりやすいエラーで止まることを担保する。
+test("emit(a): document のある環境で For を渡すと真因を示すエラーで throw する", () => {
+  const items = signal([{ id: 1, text: "a" }]);
+  assert.throws(
+    () =>
+      emit`<ul>${For(
+        () => items.value,
+        (x) => x.id,
+        (it) => html`<li>${() => it().text}</li>`,
+      )}</ul>`,
+    /document/,
+    "emit は DOM Node の子を、document のある環境の旨を添えて拒否する",
+  );
+});
+test("toNode(b): EmittedHtml 封筒を html の子に渡すと throw する（[object Object] のサイレント死を防ぐ）", () => {
+  assert.throws(
+    () => html`<div>${new EmittedHtml("<b>x</b>")}</div>`,
+    /EmittedHtml/,
+    "EmittedHtml は emit 専用で DOM には挿せない",
   );
 });

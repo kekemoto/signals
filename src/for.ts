@@ -8,6 +8,8 @@
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
+import { toHtml } from "./emit.js";
+import { emitRange, RANGE } from "./emitted-html.js";
 import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal, signal } from "./reactive.js";
@@ -22,15 +24,35 @@ interface Entry<T> {
 export function For<T>(
   items: (() => T[]) | Signal<T[]>,
   keyFn: (item: T) => unknown,
-  render: (item: () => T, index: () => number) => Node,
+  // render はクライアントでは Node（`html` / `h`）を、サーバ（emit）では文字列を返す
+  // アイソモーフィックな関数。CSR 経路は Node 前提で扱う。
+  render: (item: () => T, index: () => number) => Node | string,
 ): DocumentFragment {
   const itemsFn = toAccessor(items); // signal なら .value を読む関数に正規化
+  // サーバ（DOM 無し）では emit 用に文字列化する。items を 1 回読み、各行を render（= emit を返す
+  // 関数）で展開して `<!--for-->…<!--/for-->` で囲む（emitRange が adopt 側 claimRange(RANGE.for) と
+  // 同形のマーカーで包む）。effect は張らず、行は出現順に並べる（key は CSR の差分用で、サーバ出力
+  // には不要）。戻り値は生 HTML 封筒で、emit の子穴に入れても再エスケープされない。
+  if (typeof document === "undefined") {
+    const list = itemsFn();
+    let rows = "";
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      rows += toHtml(
+        render(
+          () => item,
+          () => i,
+        ),
+      );
+    }
+    return emitRange(RANGE.for, rows);
+  }
   // ハイドレーション中はサーバが出した `<!--for-->…<!--/for-->` を採用する（作り直さない）。
   // 採用できたときは既存の行ノードを使い回し（initialRows）、初回 effect だけ render を
   // 既存行へ adopt 配線する。採用先が無ければ通常どおり新規生成にフォールバックする。
-  const adopted = isHydrating() ? claimRange("for") : null;
-  const start = adopted ? adopted.start : document.createComment("for");
-  const end = adopted ? adopted.end : document.createComment("/for");
+  const adopted = isHydrating() ? claimRange(RANGE.for) : null;
+  const start = adopted ? adopted.start : document.createComment(RANGE.for);
+  const end = adopted ? adopted.end : document.createComment(`/${RANGE.for}`);
   const frag = document.createDocumentFragment();
   // 採用時は start / end は既にホスト内にあるので frag には入れない（移動させない＝childList を
   // 変えない）。新規時だけ frag にこの2つを入れて、呼び出し側が挿入する。
@@ -68,7 +90,8 @@ export function For<T>(
             );
           // 採用時は既存行へ向けて render を実行し（行内の html が adopt 配線する）、
           // ノードは既存行そのものを使う（render の戻り値は捨てる）。新規時は普通に生成。
-          if (!row) return make();
+          // CSR では render は Node を返す（string はサーバ経路のみ）。
+          if (!row) return make() as Node;
           withRoot(row, make);
           return row;
         });

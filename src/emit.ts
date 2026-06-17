@@ -21,12 +21,36 @@
 //   DOM に触れない `reactive.ts` / `node.ts` の純粋関数だけ）。サーバ / SSG ビルドからそのまま
 //   import できる。テンプレ解釈は `html.ts` の DOM パース（`template.innerHTML`）を通らない別経路で、
 //   自前の軽量トークナイザでチャンク＋穴に分ける。
+
+import { EmittedHtml, isEmittedHtml, RANGE, rangeClose, rangeOpen } from "./emitted-html.js";
 import { isRef, resolveEvent } from "./node.js";
 import { DEV, isSignal } from "./reactive.js";
 
-/** 子穴（reactive）を囲む開閉コメント。node.ts の toNode が作るペアと同形にして wire を共用する。 */
-const HOLE_OPEN = "<!--hole-->";
-const HOLE_CLOSE = "<!--/hole-->";
+/** 子穴（reactive）を囲む開閉コメント。node.ts の toNode・claimRange と同じ RANGE 名から導く。 */
+const HOLE_OPEN = rangeOpen(RANGE.hole);
+const HOLE_CLOSE = rangeClose(RANGE.hole);
+
+// 生 HTML 封筒（`For` / `Show` のサーバ出力が使う）は emitted-html.ts に置き、`./emit` から再公開する。
+export { EmittedHtml, isEmittedHtml };
+
+/**
+ * `serializeChild` の非エスケープ版。`For` の各行・`Show` の枝（= `render` がサーバで返した
+ * 既に組み立て済みの断片）を、エスケープせずプレーンな HTML 文字列にほどく。
+ * `EmittedHtml` 封筒なら中身を取り出し、配列は `serializeChild` と同じく join("") で連結、
+ * null / 真偽は空、文字列はそのまま信頼して通す。入力は render 済みの断片なので、
+ * `serializeChild` の関数 / signal の解決は要らない（配列だけは多ノード行のため揃える）。
+ *
+ * 注意（#58）: 素の文字列は「emit が組んだ HTML」として**再エスケープせず**通す。`emit` の戻り値が
+ * 文字列である現状、データ文字列と emit 出力を実行時に区別できないため（区別すると emit 出力が
+ * 二重エスケープされる）。よって render が素のデータ文字列を返すとサーバで未エスケープ注入に
+ * なりうる。これを型で塞ぐ（emit を安全型返しにし render を `Node | EmittedHtml` に締める）のは #58。
+ */
+export function toHtml(v: unknown): string {
+  if (v == null || typeof v === "boolean") return "";
+  if (isEmittedHtml(v)) return v.html;
+  if (Array.isArray(v)) return v.flat(Infinity).map(toHtml).join(""); // 多ノード行: serializeChild と揃える
+  return String(v);
+}
 
 /** 解釈結果の命令列。値に依存しない構造だけを持つのでテンプレ単位でキャッシュできる。 */
 type Op =
@@ -109,15 +133,25 @@ function styleString(obj: Record<string, unknown>): string {
   return out.trim();
 }
 
-/** 子穴の値を文字列にする。関数 / signal / 配列は再帰的に解決し、null / 真偽値は空にする。 */
+/**
+ * 子穴の値を HTML 文字列に直列化する（emit の子描画の主役）。関数 / signal / 配列は再帰的に
+ * 解決し、null / 真偽値は空にする。素のプリミティブは XSS 対策でエスケープする。
+ * エスケープしない変種は `toHtml`（For / Show のサーバ展開専用）。
+ */
 function serializeChild(v: unknown): string {
   if (typeof v === "function") return serializeChild((v as () => unknown)());
   if (isSignal(v)) return serializeChild(v.value);
+  if (isEmittedHtml(v)) return v.html; // 組み立て済みの生 HTML（For / Show のサーバ出力）はそのまま
   if (v == null || typeof v === "boolean") return ""; // 子の true / false はどちらも非表示
   if (Array.isArray(v)) return v.flat(Infinity).map(serializeChild).join("");
   if (typeof Node !== "undefined" && v instanceof Node) {
-    // DOM 非依存のため Node はシリアライズできない。SSR 第1弾はプリミティブな子のみが対象。
-    throw new Error("emit: Node の子はサポートしていません（SSR 第1弾はプリミティブのみ）");
+    // DOM 非依存のため DOM Node は文字列化できない。`document` のある環境（jsdom 等）では
+    // For / Show / ネストした html 断片は実 DOM を生成して emit に届くので、ここで気づける。
+    throw new Error(
+      "emit: DOM Node は文字列化できません。`document` のある環境（jsdom 等）では " +
+        "For / Show / ネストした html 断片は DOM を生成するため emit に乗りません。" +
+        "DOM 非依存のサーバで emit を実行するか、子を手組みの文字列で渡してください。",
+    );
   }
   return escapeText(String(v));
 }

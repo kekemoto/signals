@@ -1,4 +1,6 @@
 // node.ts — 穴・子の値を DOM ノードへ変換する共通処理（h.ts / html.ts で共用）
+
+import { isEmittedHtml, RANGE } from "./emitted-html.js";
 import { effect, isSignal, type Signal } from "./reactive.js";
 
 /**
@@ -31,13 +33,21 @@ function updateRange(start: Comment, end: Comment, v: unknown): void {
 export function toNode(child: unknown): Node {
   // 真偽値はどちらも非表示（属性側の true=空文字 とは別。子では false/true とも何も描かない）。
   if (child == null || typeof child === "boolean") return document.createTextNode("");
+  // EmittedHtml（emit が組み立てた生 HTML 封筒）が DOM パスに紛れ込んだケース。素通しすると
+  // String(封筒) で `"[object Object]"` というテキストになって黙って壊れるので、ここで loud に止める。
+  if (isEmittedHtml(child)) {
+    throw new Error(
+      "html/h: EmittedHtml（emit が組み立てた生 HTML 封筒）は DOM に挿入できません。" +
+        "EmittedHtml は emit（サーバ）専用です。クライアントでは html`...` か文字列を渡してください。",
+    );
+  }
   if (isSignal(child)) child = toAccessor(child); // シグナル直接は関数に正規化
   if (typeof child === "function") {
     // コメント2つで範囲を作り、返り値が何であれその間を再描画する。
     // Node / 配列を返せば構造ごと入れ替わる（${() => list.value.map(...)} が書ける）。
     // 中で張られた effect は所有権ツリーが再実行時に自動 dispose する。
-    const start = document.createComment("hole");
-    const end = document.createComment("/hole");
+    const start = document.createComment(RANGE.hole);
+    const end = document.createComment(`/${RANGE.hole}`);
     const frag = document.createDocumentFragment();
     frag.append(start, end);
     effect(() => updateRange(start, end, (child as () => unknown)()));
