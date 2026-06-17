@@ -29,33 +29,35 @@ const HOLE_OPEN = "<!--hole-->";
 const HOLE_CLOSE = "<!--/hole-->";
 
 /**
- * 「生 HTML」マーカー。emit / サーバ用 `For` / `Show` が組み立て済みの HTML 文字列を、
- * 別の emit の子穴へ入れたときに **二重エスケープしない**ための封筒。通常の文字列の子は
- * データ扱いでエスケープされるが、これに包まれた文字列は既に HTML として組み立て済み
- * （信頼境界の内側）なのでそのまま流す。`For` / `Show` のサーバ出力（#47）が使う。
+ * 安全な（エスケープ済み・組み立て済みの）HTML 文字列を表す封筒。emit / サーバ用 `For` / `Show`
+ * が組んだ HTML を、別の emit の子穴へ入れたときに **二重エスケープしない**ための実行時タグ。
+ * 通常の文字列の子はデータ扱いでエスケープされるが、`SafeHtml` に包まれた文字列は既に HTML として
+ * 組み立て済み（信頼境界の内側）なのでそのまま流す。`For` / `Show` のサーバ出力（#47）が使う。
+ *
+ * class にしてあるのは、(1) `instanceof` で実行時に確実に判別でき、(2) private フィールドにより
+ * 型レベルでも nominal になる（プレーンな `{ html }` を `SafeHtml` として代入できない）ため。
+ * 「エスケープ済みか否か」を文字列だけでは実行時に見分けられないので、このタグが原理的に要る。
  */
-const RAW = Symbol("signals.rawHtml");
-export interface RawHtml {
-  html: string;
-  [RAW]: true;
+export class SafeHtml {
+  constructor(private readonly value: string) {}
+  /** 包んでいる生 HTML 文字列を取り出す。 */
+  get html(): string {
+    return this.value;
+  }
 }
-/** 文字列を「生 HTML」として封筒に包む（子穴へ入れてもエスケープされない）。 */
-export function rawHtml(html: string): RawHtml {
-  return { html, [RAW]: true };
-}
-/** 値が rawHtml で包まれた生 HTML かを判定する。 */
-export function isRawHtml(v: unknown): v is RawHtml {
-  return typeof v === "object" && v !== null && (v as { [RAW]?: unknown })[RAW] === true;
+/** 値が `SafeHtml`（エスケープ不要の組み立て済み HTML）かを判定する。 */
+export function isSafeHtml(v: unknown): v is SafeHtml {
+  return v instanceof SafeHtml;
 }
 /**
  * `serializeChild` の非エスケープ版。`For` の各行・`Show` の枝（= `render` がサーバで返した
  * 既に組み立て済みの断片）を、エスケープせずプレーンな HTML 文字列にほどく。
- * `RawHtml` 封筒なら中身を取り出し、null / 真偽は空、文字列はそのまま信頼して通す。
+ * `SafeHtml` 封筒なら中身を取り出し、null / 真偽は空、文字列はそのまま信頼して通す。
  * 入力は render 済みの断片なので、`serializeChild` の関数 / signal / 配列の解決は要らない。
  */
 export function toHtml(v: unknown): string {
   if (v == null || typeof v === "boolean") return "";
-  if (isRawHtml(v)) return v.html;
+  if (isSafeHtml(v)) return v.html;
   return String(v);
 }
 
@@ -148,7 +150,7 @@ function styleString(obj: Record<string, unknown>): string {
 function serializeChild(v: unknown): string {
   if (typeof v === "function") return serializeChild((v as () => unknown)());
   if (isSignal(v)) return serializeChild(v.value);
-  if (isRawHtml(v)) return v.html; // 組み立て済みの生 HTML（For / Show のサーバ出力）はそのまま
+  if (isSafeHtml(v)) return v.html; // 組み立て済みの生 HTML（For / Show のサーバ出力）はそのまま
   if (v == null || typeof v === "boolean") return ""; // 子の true / false はどちらも非表示
   if (Array.isArray(v)) return v.flat(Infinity).map(serializeChild).join("");
   if (typeof Node !== "undefined" && v instanceof Node) {
