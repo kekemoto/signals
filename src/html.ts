@@ -269,7 +269,6 @@ function buildAdoptLookup(desc: Descriptors): AdoptLookup {
       if (h.kind === "child") childHoleByComment.set(n as Comment, h);
       else {
         // attr / attr-part のみがここへ来る（要素に付く穴）。
-
         const arr = attrHolesByEl.get(n as Element);
         if (arr) arr.push(h);
         else attrHolesByEl.set(n as Element, [h]);
@@ -311,20 +310,25 @@ function adoptTemplate(desc: Descriptors, values: unknown[]): Node {
 }
 
 /**
- * テンプレ親 `tplParent` の子を順に辿り、アンビエントカーソル（＝対応する実 DOM 親のスコープ）から
- * 既存ノードを claim して配線する。最初に claim した要素を返す（複数ルートの先頭ルート用）。
+ * テンプレ親 `templateParent` の子を順に辿り、アンビエントカーソル（＝対応する実 DOM 親の
+ * スコープ）から既存ノードを claim して配線する。最初に claim した要素を返す（複数ルートの
+ * 先頭ルート用）。`template*` はテンプレ側のノード、`server*` はサーバが出した実 DOM 側のノード。
  */
 function adoptChildren(
-  tplParent: Node,
+  templateParent: Node,
   values: unknown[],
   lookup: AdoptLookup,
   refs: Array<() => void>,
 ): Element | null {
   let firstRoot: Element | null = null;
-  for (let tpl = tplParent.firstChild; tpl; tpl = tpl.nextSibling) {
-    if (tpl.nodeType === Node.TEXT_NODE) continue; // テンプレの静的テキスト（配線不要）
-    if (tpl.nodeType === Node.COMMENT_NODE) {
-      const hole = lookup.childHoleByComment.get(tpl as Comment);
+  for (
+    let templateChild = templateParent.firstChild;
+    templateChild;
+    templateChild = templateChild.nextSibling
+  ) {
+    if (templateChild.nodeType === Node.TEXT_NODE) continue; // テンプレの静的テキスト（配線不要）
+    if (templateChild.nodeType === Node.COMMENT_NODE) {
+      const hole = lookup.childHoleByComment.get(templateChild as Comment);
       if (!hole) continue; // 著者が書いた静的コメント
       const v = values[hole.index];
       if (typeof v === "function" || isSignal(v)) {
@@ -340,28 +344,28 @@ function adoptChildren(
         flushAdopt(v);
       }
       // それ以外（静的な子）はサーバ出力のまま。次の claim が前方走査で吸収するのでカーソルは触らない。
-    } else if (tpl.nodeType === Node.ELEMENT_NODE) {
-      const tplEl = tpl as Element;
-      const srvEl = claimElement();
-      if (!srvEl) {
+    } else if (templateChild.nodeType === Node.ELEMENT_NODE) {
+      const templateEl = templateChild as Element;
+      const serverEl = claimElement();
+      if (!serverEl) {
         if (DEV)
           console.warn(
-            `html(hydrate): <${tplEl.tagName.toLowerCase()}> に対応する要素が見つかりません（mismatch）。`,
+            `html(hydrate): <${templateEl.tagName.toLowerCase()}> に対応する要素が見つかりません（mismatch）。`,
           );
         continue;
       }
-      if (firstRoot == null) firstRoot = srvEl;
+      if (firstRoot == null) firstRoot = serverEl;
       // 期待タグ vs 実ノードのタグを照合する mismatch 検出（DEV のみ。Lit / React の
       // hydration warning と同じ立て付け。本番では DEV が畳まれてゼロコスト）。
-      if (DEV && srvEl.tagName !== tplEl.tagName)
+      if (DEV && serverEl.tagName !== templateEl.tagName)
         console.warn(
-          `html(hydrate): タグ不一致（テンプレ <${tplEl.tagName.toLowerCase()}> ≠ 実 DOM ` +
-            `<${srvEl.tagName.toLowerCase()}>）。以降の配線がずれる可能性があります。`,
+          `html(hydrate): タグ不一致（テンプレ <${templateEl.tagName.toLowerCase()}> ≠ 実 DOM ` +
+            `<${serverEl.tagName.toLowerCase()}>）。以降の配線がずれる可能性があります。`,
         );
-      const attrHoles = lookup.attrHolesByEl.get(tplEl);
-      if (attrHoles) for (const hole of attrHoles) wireAttrHole(srvEl, hole, values, refs);
+      const attrHoles = lookup.attrHolesByEl.get(templateEl);
+      if (attrHoles) for (const hole of attrHoles) wireAttrHole(serverEl, hole, values, refs);
       // この要素の子は、その要素の中だけを見る新スコープで再帰的に採用する（構造的カーソル）。
-      withScope(srvEl, () => adoptChildren(tplEl, values, lookup, refs));
+      withScope(serverEl, () => adoptChildren(templateEl, values, lookup, refs));
     }
   }
   return firstRoot;
