@@ -11,7 +11,15 @@
 //   - when の「真偽」が変わったときだけ作り直す（同じ間は据え置き）
 import { toHtml } from "./emit.js";
 import { emitRange, RANGE } from "./emitted-html.js";
-import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
+import {
+  claimRange,
+  deferAdopt,
+  flushAdopt,
+  isHydrating,
+  nodesBetween,
+  withoutHydration,
+  withRoot,
+} from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal } from "./reactive.js";
 
@@ -46,7 +54,25 @@ export function Show<T>(
     return emitRange(RANGE.show, toHtml(branch));
   }
   // ハイドレーション中はサーバが出した `<!--show-->…<!--/show-->` を採用する（作り直さない）。
-  const adopted = isHydrating() ? claimRange(RANGE.show) : null;
+  // eager 評価で共有カーソルを先食いしないよう、その場では claim せず採用処理を遅延フラグメントに
+  // 包んで返す。駆動側（runHydration / 外側 html の子走査）がカーソルを `<!--show-->` の位置に
+  // 合わせて flush したとき、claimRange でこの Show の範囲を claim して showBody を組み立てる。
+  if (isHydrating())
+    return deferAdopt(() => showBody(value, whenFn, render, fallback, claimRange(RANGE.show)));
+  return showBody(value, whenFn, render, fallback, null);
+}
+
+/**
+ * Show の本体。新規描画（adopted=null）と採用（adopted=claim した開閉ペア）で共通。
+ * 採用時は既存の中身を作り直さず、初回 effect だけ render / fallback を既存ノードへ adopt 配線する。
+ */
+function showBody<T>(
+  value: () => NonNullable<T>,
+  whenFn: () => T,
+  render: RenderBranch<T>,
+  fallback: Branch | null,
+  adopted: { start: Comment; end: Comment } | null,
+): DocumentFragment {
   const start = adopted ? adopted.start : document.createComment(RANGE.show);
   const end = adopted ? adopted.end : document.createComment(`/${RANGE.show}`);
   const frag = document.createDocumentFragment();
@@ -70,12 +96,22 @@ export function Show<T>(
       initialNode = undefined;
       const make: Branch | null = show ? () => render(value) : fallback;
       if (make) {
+        let built: Node | null = node ?? null;
         const { dispose } = rooted(() => {
-          // 既存ノードがあればそこへ向けて配線（中の html が adopt）、無ければそのまま実行。
-          if (node) withRoot(node, make);
-          else make();
+          // 既存ノードがあればそこへカーソルを合わせて配線（中の html を flush して adopt）。
+          if (node) {
+            withRoot(node, () => flushAdopt(make()));
+            return;
+          }
+          // 既存中身が無い（サーバは空・クライアントは描画したい mismatch）。カーソルを外して
+          // 新規生成し、start / end の間へ挿入する（誤って既存ノードを claim しない）。
+          const fresh = withoutHydration(make) as Node | null | undefined;
+          if (fresh) {
+            end.parentNode?.insertBefore(fresh, end);
+            built = fresh;
+          }
         });
-        current = { node: node ?? null, dispose };
+        current = { node: built, dispose };
       }
       return;
     }
