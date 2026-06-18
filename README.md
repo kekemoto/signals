@@ -1,14 +1,12 @@
 # @kekemoto/signals
 
-**ビルド不要・依存ゼロで、ページにリアクティビティを“振りかける”ための小さなライブラリ。**
+**ビルド不要・依存ゼロで、ページにリアクティビティを追加するための小さなライブラリ。**
 `<script>` を1行足すだけで、signal ベースのリアクティブな DOM・Web Components・SSR
-ハイドレーションが使える。Alpine のような手軽さに、本物の signal と素直な書き心地を
-足したものを目指している。
+ハイドレーションが使える。signal による細粒度更新と素直な書き心地を足したものを目指している。
 
 - **ビルド不要** — トランスパイラもバンドラも要らない。`<script src>` か `import` で即動く。
 - **依存ゼロ** — ランタイム依存なし。TypeScript 製で型定義（`.d.ts`）を同梱。
-- **MPA / アイランド向き** — SPA で全部を抱え込まず、サーバーが出した HTML に
-  必要な部品だけ足す、という使い方もできる。
+- **MPA / アイランド向き** — SPA で全部を抱え込まず、サーバーが出した HTML に必要な部品だけ足す、という使い方もできる。
 
 ## まず動かす
 
@@ -31,7 +29,7 @@
 `count.value++` するだけでボタンのテキストが書き換わる。仮想 DOM の差分も全体再レンダーも
 なく、`${count}` の箇所だけがピンポイントで更新される（細粒度更新）。
 
-## このライブラリでできること
+## サンプル
 
 「サーバーが大半を描く（MPA）／足りない対話部分だけをアイランドで足す」を、ビルド無しで
 回すための3つの道具。
@@ -57,7 +55,7 @@ document.querySelector("#app").append(html`
 ```
 
 単一の signal は `${first}` と直接、複数を組む派生は `${() => ...}` と関数で包む。
-`memo` / `computed` は無く、派生は **ただの関数**で書く（[詳細](#派生はただの関数で書く)）。
+`memo` / `computed` は無く、派生は **ただの関数**で書く。
 
 ### 2. 独立した部品をサッと置く — `defineElement` + `tags`
 
@@ -83,10 +81,7 @@ defineElement("x-counter", () => {
 <x-counter></x-counter>
 ```
 
-接続時に所有ツリー（`createRoot`）を張って `setup` を1回呼び、切断時にまとめて dispose
-するので、部品が張った `effect` は孤児にならない（[所有ツリー](#所有ツリー自動-dispose)）。
-
-### 3. サーバーと素直につなぐ — `emit` + `hydrate`
+### 3. サーバーとつなぐ — SSR / ハイドレーション
 
 サーバー（SSG / Node）が出した HTML を、クライアントが**作り直さずに採用（adopt）**して
 reactive を配線する。focus・入力値・スクロールなどの DOM 状態を壊さない「状態保存型」の
@@ -112,12 +107,6 @@ count.value = 42; // 既存の <span> のテキストだけ更新（作り直さ
 ```
 
 ---
-
-ここまでが「何ができて何が嬉しいか」。以降は API ごとの詳しい説明。
-
-- **コア** — `signal` / `effect` / `batch` / `cached` / `store` / `onCleanup` / `onError` / `untrack` / `createRoot` / `getOwner` / `runWithOwner` / `isSignal`
-- **DOM** — `h` / `tags` / `` html`...` `` / `For` / `Show` / `defineElement`（Web Component）
-- **SSR / ハイドレーション** — `emit`（DOM 非依存の文字列エミッタ）/ `hydrate` / `defineElement` の adopt モード（`HYDRATE_ATTR`）
 
 ## インストール
 
