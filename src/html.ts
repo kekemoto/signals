@@ -19,7 +19,15 @@
 //   この段では挙動は従来どおり（解釈を 1 回に畳んでキャッシュするだけ）。
 
 import { RANGE } from "./emitted-html.js";
-import { claimRange, claimRoot, isHydrating, withScope } from "./hydration.js";
+import {
+  claimElement,
+  claimRange,
+  deferAdopt,
+  flushAdopt,
+  isDeferred,
+  isHydrating,
+  withScope,
+} from "./hydration.js";
 import { adoptChild, bindProp, isRef, resolveSetter, toNode } from "./node.js";
 import { DEV, effect, isSignal } from "./reactive.js";
 
@@ -60,8 +68,10 @@ const cache = new WeakMap<TemplateStringsArray, Descriptors>();
  */
 export function html(strings: TemplateStringsArray, ...values: unknown[]): Node {
   const desc = parse(strings);
-  // ハイドレーション中はサーバが出した既存 DOM を採用する（作り直さない）。
-  if (isHydrating()) return hydrate(desc, values);
+  // ハイドレーション中はサーバが出した既存 DOM を採用する（作り直さない）。eager 評価で
+  // 共有カーソルを先食いしないよう、その場では claim せず採用処理を遅延フラグメントに包んで返す。
+  // 駆動側（runHydration / 外側 html の子走査 / For・Show の各行）がカーソルを合わせて flush する。
+  if (isHydrating()) return deferAdopt(() => adoptTemplate(desc, values));
   const content = desc.template.content.cloneNode(true) as DocumentFragment;
   wire(desc, content, values);
   // 前後の空白だけのテキストを落とし、ルートが1つならその要素を返す。
@@ -222,87 +232,157 @@ function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): 
   for (const run of refs) run();
 }
 
-/**
- * パース済みの descriptors を、サーバ（emit）が出した既存 DOM に **採用（adopt）** して配線する
- * （新規生成しない＝段階3の wire の adopt パス）。新規描画の `wire` と対になる:
- *   - 属性 / イベント / プロパティ / ref 穴は既存要素にそのまま配線する（bindProp は冪等で、
- *     reactive 属性の初回 effect が同じ値を入れ直すだけ。childList は変えない）。
- *   - 子穴は reactive のときだけサーバの `<!--hole-->…<!--/hole-->` を claim して adoptChild で
- *     effect を張り直す（初回は DOM を触らない）。静的な子穴はマーカーが無く配線不要なので飛ばす。
- *
- * 要素の対応づけは「descriptors の元テンプレ（desc.template）と既存 DOM は同じ著者 HTML
- * 由来なので要素の文書順が一致する」性質を使う。属性穴の `node`（要素＋コメント混在の走査
- * インデックス）を要素だけの順位に直し、既存 DOM の同順位の要素へ突き合わせる。
- */
-function hydrate(desc: Descriptors, values: unknown[]): Node {
-  const root = claimRoot();
-  if (!root) {
-    if (DEV) console.warn("html(hydrate): 採用するルートノードが見つかりません。");
-    // 採用先が無ければ通常どおり新規生成にフォールバックする（mismatch を致命にしない）。
-    const content = desc.template.content.cloneNode(true) as DocumentFragment;
-    wire(desc, content, values);
-    trimEdges(content);
-    return content.childNodes.length === 1 ? content.firstChild! : content;
-  }
-  // このルートの内側だけを claimRange の探索範囲にして子穴を採用する。
-  withScope(root, () => wireAdopt(desc, root as Element, values));
-  return root;
+/** ハイドレーション用に、テンプレ各ノードの参照から穴を引けるルックアップ。 */
+interface AdoptLookup {
+  /** テンプレ要素 → その要素に付く属性 / 部分埋め込み穴。 */
+  attrHolesByEl: Map<Element, Hole[]>;
+  /** テンプレの子穴コメント（`<!--signals-hole-N-->`）→ 子穴記述。 */
+  childHoleByComment: Map<Comment, Extract<Hole, { kind: "child" }>>;
 }
 
 /**
- * descriptors を既存 DOM 部分木 `root` に配線する（hydrate の本体）。
- * 属性穴は要素順位の突き合わせで、reactive 子穴は claimRange + adoptChild で採用する。
+ * descriptors の穴を「テンプレノードの参照」で引けるよう整理する。`hole.node`（要素＋コメント
+ * 混在の走査インデックス）を、`desc.template` を同じ TreeWalker で辿って実際のノード参照に解決する。
+ * 構造的走査（adoptTemplate）は木を降りながらノード参照で穴を引くので、フラットな順位計算が要らない。
  */
-function wireAdopt(desc: Descriptors, root: Element, values: unknown[]): void {
-  // 元テンプレの「要素＋コメント走査インデックス → 要素だけの順位」を作る（属性穴の node 用）。
-  const elemRank = new Map<number, number>();
+function buildAdoptLookup(desc: Descriptors): AdoptLookup {
+  const attrHolesByEl = new Map<Element, Hole[]>();
+  const childHoleByComment = new Map<Comment, Extract<Hole, { kind: "child" }>>();
+  // node インデックス → 穴（同じ要素に複数の属性穴が付くので配列）。
+  const byNode = new Map<number, Hole[]>();
+  for (const h of desc.holes) {
+    const arr = byNode.get(h.node);
+    if (arr) arr.push(h);
+    else byNode.set(h.node, [h]);
+  }
   const tw = document.createTreeWalker(
     desc.template.content,
     NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT,
   );
-  let combined = -1;
-  let rank = -1;
+  let i = -1;
   while (tw.nextNode()) {
-    combined++;
-    if (tw.currentNode.nodeType === Node.ELEMENT_NODE) elemRank.set(combined, ++rank);
-  }
-  // 既存 DOM の要素を文書順で集める（ルート自身を先頭に含める）。元テンプレと著者 HTML が
-  // 同じなので、この並びは elemRank の順位と一致する。
-  const serverEls: Element[] = [root];
-  const sw = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-  while (sw.nextNode()) serverEls.push(sw.currentNode as Element);
-  const elemAt = (node: number): Element => serverEls[elemRank.get(node)!];
-
-  // 属性 / イベント / プロパティ / ref 穴。ref は木が完成してから呼ぶので退避する（wire と同じ）。
-  const refs: Array<() => void> = [];
-  for (const hole of desc.holes) {
-    if (hole.kind === "attr") {
-      const el = elemAt(hole.node);
-      const v = values[hole.index];
-      if (isRef(hole.name, v)) {
-        refs.push(() => v(el));
-        continue;
+    i++;
+    const hs = byNode.get(i);
+    if (!hs) continue;
+    const n = tw.currentNode;
+    for (const h of hs) {
+      if (h.kind === "child") childHoleByComment.set(n as Comment, h);
+      else {
+        // attr / attr-part のみがここへ来る（要素に付く穴）。
+        const arr = attrHolesByEl.get(n as Element);
+        if (arr) arr.push(h);
+        else attrHolesByEl.set(n as Element, [h]);
       }
-      bindProp(el, hole.name, v);
-    } else if (hole.kind === "attr-part") {
-      wireDynamicAttr(elemAt(hole.node), hole.name, hole.value, values);
     }
   }
+  return { attrHolesByEl, childHoleByComment };
+}
 
-  // 子穴。reactive のときだけサーバの開閉ペアを採用して effect を張り直す（順序＝文書順）。
-  for (const hole of desc.holes) {
-    if (hole.kind !== "child") continue;
-    const v = values[hole.index];
-    if (!(typeof v === "function" || isSignal(v))) continue; // 静的な子はサーバ出力のまま
-    const range = claimRange(RANGE.hole);
-    if (range) adoptChild(range.start, range.end, v);
-    else if (DEV)
-      console.warn(
-        "html(hydrate): reactive な子穴に対応する <!--hole--> が見つかりません（mismatch）。",
-      );
-  }
-
+/**
+ * パース済みの descriptors を、サーバ（emit）が出した既存 DOM へ **採用（adopt）** して配線する
+ * （新規生成しない＝段階3の wire の adopt パス）。`html` の遅延フラグメントが flush されたとき、
+ * アンビエントカーソルが正しい位置に置かれた状態で呼ばれる。
+ *
+ * 走査は「テンプレ木と実 DOM 木を同時に降りる構造的カーソル」（adoptChildren）で行う:
+ *   - テンプレ要素は `claimElement` で実 DOM の同位置の要素に突き合わせ、属性 / イベント /
+ *     プロパティ / ref 穴を配線し、その要素の子を新スコープ（withScope）で再帰的に採用する。
+ *   - reactive 子穴は `<!--hole-->…<!--/hole-->` を claim して adoptChild で effect を張り直す。
+ *   - 入れ子の `For` / `Show` / `html`（遅延フラグメント）はその子穴位置で flush して採用させる。
+ *   - 静的な子穴はマーカーが無く配線不要なので飛ばす（次の要素 / マーカー claim が前方走査で吸収する）。
+ * 複数ルート（fragment テンプレ）はトップレベルの子を順に claim するので自然に全ルートが配線される。
+ *
+ * 戻り値は最初に claim したルート要素（最上位 `runHydration` の戻り値・テストの `===` 判定に使う）。
+ * どのルートも claim できなければ DEV 警告のうえ新規生成にフォールバックする（mismatch を致命にしない）。
+ */
+function adoptTemplate(desc: Descriptors, values: unknown[]): Node {
+  const lookup = buildAdoptLookup(desc);
+  const refs: Array<() => void> = [];
+  const firstRoot = adoptChildren(desc.template.content, values, lookup, refs);
+  // ref はすべての穴の配線が済んでから（要素が完成した状態で）呼ぶ（wire と同じ）。
   for (const run of refs) run();
+  if (firstRoot) return firstRoot;
+  if (DEV)
+    console.warn("html(hydrate): 採用するルートが見つかりません。新規生成にフォールバックします。");
+  const content = desc.template.content.cloneNode(true) as DocumentFragment;
+  wire(desc, content, values);
+  trimEdges(content);
+  return content.childNodes.length === 1 ? content.firstChild! : content;
+}
+
+/**
+ * テンプレ親 `templateParent` の子を順に辿り、アンビエントカーソル（＝対応する実 DOM 親の
+ * スコープ）から既存ノードを claim して配線する。最初に claim した要素を返す（複数ルートの
+ * 先頭ルート用）。`template*` はテンプレ側のノード、`server*` はサーバが出した実 DOM 側のノード。
+ */
+function adoptChildren(
+  templateParent: Node,
+  values: unknown[],
+  lookup: AdoptLookup,
+  refs: Array<() => void>,
+): Element | null {
+  let firstRoot: Element | null = null;
+  for (
+    let templateChild = templateParent.firstChild;
+    templateChild;
+    templateChild = templateChild.nextSibling
+  ) {
+    if (templateChild.nodeType === Node.TEXT_NODE) continue; // テンプレの静的テキスト（配線不要）
+    if (templateChild.nodeType === Node.COMMENT_NODE) {
+      const hole = lookup.childHoleByComment.get(templateChild as Comment);
+      if (!hole) continue; // 著者が書いた静的コメント
+      const v = values[hole.index];
+      if (typeof v === "function" || isSignal(v)) {
+        // reactive 子穴: サーバの開閉ペアを claim して effect を張り直す。
+        const range = claimRange(RANGE.hole);
+        if (range) adoptChild(range.start, range.end, v);
+        else if (DEV)
+          console.warn(
+            "html(hydrate): reactive な子穴に対応する <!--hole--> が見つかりません（mismatch）。",
+          );
+      } else if (isDeferred(v)) {
+        // 入れ子の For / Show / html: この子穴位置のカーソルで自分の範囲を claim・採用させる。
+        flushAdopt(v);
+      }
+      // それ以外（静的な子）はサーバ出力のまま。次の claim が前方走査で吸収するのでカーソルは触らない。
+    } else if (templateChild.nodeType === Node.ELEMENT_NODE) {
+      const templateEl = templateChild as Element;
+      const serverEl = claimElement();
+      if (!serverEl) {
+        if (DEV)
+          console.warn(
+            `html(hydrate): <${templateEl.tagName.toLowerCase()}> に対応する要素が見つかりません（mismatch）。`,
+          );
+        continue;
+      }
+      if (firstRoot == null) firstRoot = serverEl;
+      // 期待タグ vs 実ノードのタグを照合する mismatch 検出（DEV のみ。Lit / React の
+      // hydration warning と同じ立て付け。本番では DEV が畳まれてゼロコスト）。
+      if (DEV && serverEl.tagName !== templateEl.tagName)
+        console.warn(
+          `html(hydrate): タグ不一致（テンプレ <${templateEl.tagName.toLowerCase()}> ≠ 実 DOM ` +
+            `<${serverEl.tagName.toLowerCase()}>）。以降の配線がずれる可能性があります。`,
+        );
+      const attrHoles = lookup.attrHolesByEl.get(templateEl);
+      if (attrHoles) for (const hole of attrHoles) wireAttrHole(serverEl, hole, values, refs);
+      // この要素の子は、その要素の中だけを見る新スコープで再帰的に採用する（構造的カーソル）。
+      withScope(serverEl, () => adoptChildren(templateEl, values, lookup, refs));
+    }
+  }
+  return firstRoot;
+}
+
+/** 採用時の属性 / 部分埋め込み穴を 1 つ配線する（wire の属性処理と同じ規則。ref は退避）。 */
+function wireAttrHole(el: Element, hole: Hole, values: unknown[], refs: Array<() => void>): void {
+  if (hole.kind === "attr") {
+    const v = values[hole.index];
+    if (isRef(hole.name, v)) {
+      refs.push(() => v(el)); // 子穴の採用まで終えてから渡す
+      return;
+    }
+    bindProp(el, hole.name, v);
+  } else if (hole.kind === "attr-part") {
+    wireDynamicAttr(el, hole.name, hole.value, values);
+  }
 }
 
 /** 穴の値を読む。関数なら呼び、シグナルなら .value、それ以外はそのまま。 */

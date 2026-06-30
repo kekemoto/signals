@@ -10,7 +10,15 @@
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
 import { toHtml } from "./emit.js";
 import { emitRange, RANGE } from "./emitted-html.js";
-import { claimRange, isHydrating, nodesBetween, withRoot } from "./hydration.js";
+import {
+  claimRange,
+  deferAdopt,
+  flushAdopt,
+  isHydrating,
+  nodesBetween,
+  withoutHydration,
+  withRoot,
+} from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal, signal } from "./reactive.js";
 
@@ -48,9 +56,24 @@ export function For<T>(
     return emitRange(RANGE.for, rows);
   }
   // ハイドレーション中はサーバが出した `<!--for-->…<!--/for-->` を採用する（作り直さない）。
-  // 採用できたときは既存の行ノードを使い回し（initialRows）、初回 effect だけ render を
-  // 既存行へ adopt 配線する。採用先が無ければ通常どおり新規生成にフォールバックする。
-  const adopted = isHydrating() ? claimRange(RANGE.for) : null;
+  // eager 評価で共有カーソルを先食いしないよう、その場では claim せず採用処理を遅延フラグメントに
+  // 包んで返す。駆動側（runHydration / 外側 html の子走査）がカーソルを `<!--for-->` の位置に
+  // 合わせて flush したとき、claimRange でこの For の範囲を claim して forBody を組み立てる。
+  if (isHydrating())
+    return deferAdopt(() => forBody(itemsFn, keyFn, render, claimRange(RANGE.for)));
+  return forBody(itemsFn, keyFn, render, null);
+}
+
+/**
+ * For の本体。新規描画（adopted=null）と採用（adopted=claim した開閉ペア）で共通。
+ * 採用時は既存の行ノードを使い回し（initialRows）、初回 effect だけ render を既存行へ adopt 配線する。
+ */
+function forBody<T>(
+  itemsFn: () => T[],
+  keyFn: (item: T) => unknown,
+  render: (item: () => T, index: () => number) => Node | string,
+  adopted: { start: Comment; end: Comment } | null,
+): DocumentFragment {
   const start = adopted ? adopted.start : document.createComment(RANGE.for);
   const end = adopted ? adopted.end : document.createComment(`/${RANGE.for}`);
   const frag = document.createDocumentFragment();
@@ -88,12 +111,16 @@ export function For<T>(
               () => itemSig.value,
               () => indexSig.value,
             );
-          // 採用時は既存行へ向けて render を実行し（行内の html が adopt 配線する）、
-          // ノードは既存行そのものを使う（render の戻り値は捨てる）。新規時は普通に生成。
+          // 採用時は既存行へカーソルを合わせて render を実行し、行内の html（遅延フラグメント）を
+          // flush して既存行へ adopt 配線する。ノードは既存行そのものを使う（戻り値は捨てる）。
+          if (row) {
+            withRoot(row, () => flushAdopt(make()));
+            return row;
+          }
+          // 新規行: サーバ DOM に対応が無い（mismatch / クライアントで増えた行）。ハイドレーション
+          // 中でも誤って既存ノードを claim しないよう、カーソルを外して新規生成する。
           // CSR では render は Node を返す（string はサーバ経路のみ）。
-          if (!row) return make() as Node;
-          withRoot(row, make);
-          return row;
+          return (isHydrating() ? withoutHydration(make) : make()) as Node;
         });
         entry = { node, dispose, item: itemSig, index: indexSig };
       } else {
