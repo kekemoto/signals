@@ -331,8 +331,7 @@ dev ビルドでは `console.warn` で知らせる。
 `.foo=${v}` は DOM プロパティ代入になる。
 
 ```js
-import { html } from "@kekemoto/signals/html";
-import { signal } from "@kekemoto/signals";
+import { html, signal } from "@kekemoto/signals";
 
 const count = signal(0);
 
@@ -428,8 +427,7 @@ key 付きリスト差分描画。存在し続ける行の `effect` は畳まれ
 - **並べ替え・挿入・削除で位置が変わった**とき、`index()` も追従する（順位表示などに使える）。
 
 ```js
-import { For } from "@kekemoto/signals/for";
-import { html, signal } from "@kekemoto/signals";
+import { For, html, signal } from "@kekemoto/signals";
 
 const items = signal([
   { id: 1, text: "foo" },
@@ -451,8 +449,7 @@ const list = html`<ul>
 第1引数は**シグナルそのもの**でも、真偽を返す関数（`() => loggedIn.value`）でもよい。
 
 ```js
-import { Show } from "@kekemoto/signals/show";
-import { html, signal } from "@kekemoto/signals";
+import { Show, html, signal } from "@kekemoto/signals";
 
 const loggedIn = signal(false);
 

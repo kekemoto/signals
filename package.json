@@ -11,26 +11,6 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
-    },
-    "./reactive": {
-      "types": "./dist/src/reactive.d.ts",
-      "default": "./dist/src/reactive.js"
-    },
-    "./html": {
-      "types": "./dist/src/html.d.ts",
-      "default": "./dist/src/html.js"
-    },
-    "./for": {
-      "types": "./dist/src/for.d.ts",
-      "default": "./dist/src/for.js"
-    },
-    "./show": {
-      "types": "./dist/src/show.d.ts",
-      "default": "./dist/src/show.js"
-    },
-    "./element": {
-      "types": "./dist/src/element.d.ts",
-      "default": "./dist/src/element.js"
     }
   },
   "files": [
