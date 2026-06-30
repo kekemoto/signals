@@ -240,7 +240,7 @@ export function signal<T>(initial: T): Signal<T> {
   return cell;
 }
 
-// signal() が返すセルかどうかを判定する。h / tags / html で「関数の穴」と同じく
+// signal() が返すセルかどうかを判定する。html で「関数の穴」と同じく
 // reactive に扱うため、シグナルを直接渡せる（${count} のように .value を省ける）。
 // 非公開の SIGNAL ブランドの有無で判定する。peek の有無を見る duck typing だと
 // peek を持つ無関係なオブジェクト（イテレータ系ライブラリ等）を誤って signal 扱い

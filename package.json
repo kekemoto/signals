@@ -16,14 +16,6 @@
       "types": "./dist/src/reactive.d.ts",
       "default": "./dist/src/reactive.js"
     },
-    "./h": {
-      "types": "./dist/src/h.d.ts",
-      "default": "./dist/src/h.js"
-    },
-    "./tags": {
-      "types": "./dist/src/tags.d.ts",
-      "default": "./dist/src/tags.js"
-    },
     "./html": {
       "types": "./dist/src/html.d.ts",
       "default": "./dist/src/html.js"

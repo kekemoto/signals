@@ -1,10 +1,10 @@
-// show.ts — 条件表示（Solid の <Show> 相当）。h.ts / tags.ts と組み合わせる。
+// show.ts — 条件表示（Solid の <Show> 相当）。html と組み合わせる。
 //   Show(() => user.value != null,
-//        () => h("p", {}, "ようこそ"),
-//        () => h("p", {}, "ログインしてください"))   // 第3引数(fallback)は任意
+//        () => html`<p>ようこそ</p>`,
+//        () => html`<p>ログインしてください</p>`)   // 第3引数(fallback)は任意
 // render は「真だった値を返す accessor」を受け取れる（Solid 同様）。null 除去した値を
 // そのまま使える:
-//   Show(() => user.value, (user) => h("p", {}, user().name))  // user() は NonNullable
+//   Show(() => user.value, (user) => html`<p>${() => user().name}</p>`)  // user() は NonNullable
 // 要点:
 //   - when が真なら render() を、偽なら fallback() を表示する
 //   - 切り替え時に中身を createRoot で作り、消えるときは dispose（中の effect も止まる）

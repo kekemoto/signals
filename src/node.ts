@@ -1,4 +1,4 @@
-// node.ts — 穴・子の値を DOM ノードへ変換する共通処理（h.ts / html.ts で共用）
+// node.ts — 穴・子の値を DOM ノードへ変換する共通処理（html.ts / for.ts / show.ts で共用）
 
 import { effect, isSignal, type Signal } from "./reactive.js";
 
@@ -8,7 +8,7 @@ const HOLE = "hole";
 
 /**
  * reactive な入力を1つの accessor `() => T` に正規化する。
- * signal 直渡し（`span(state.user.name)`）と accessor（`span(() => ...)`）の両方を
+ * signal 直渡し（`${count}`）と accessor（`${() => ...}`）の両方を
  * 受ける穴・コンポーネント引数で、「読み口は関数」に揃えるために共用する。
  */
 export function toAccessor<T>(v: Signal<T> | (() => T)): () => T {
@@ -123,8 +123,7 @@ export function setProp(el: Element, key: string, v: unknown): void {
  * addEventListener へ渡すイベント型名を返す。`on` 始まりで値が関数のときだけイベント扱いにし、
  * そうでなければ null を返す（呼び出し側は属性 / プロパティ処理にフォールバックする）。
  * 型名は小文字化する。html は HTML パーサが属性名を小文字化するので元から小文字相当だが、
- * h / tags のキー（`onClick`）と同じ規則に揃えるためここで一括して小文字にする。
- * h.ts / html.ts のどちらからも同じ仕様で使う。
+ * `onClick` のような書き方にも揃うようここで一括して小文字にする。
  */
 export function resolveEvent(name: string, v: unknown): string | null {
   if (!name.startsWith("on") || typeof v !== "function") return null;
@@ -138,8 +137,7 @@ export const REF_KEY = "ref";
  * ref 穴かを判定する。予約キー `ref` で値が関数のときだけ ref 扱いにし、要素が完成した後に
  * `fn(el)` を1度だけ呼ぶ（reactive ではない）。値が関数でなければ false を返し、呼び出し側は
  * 従来どおり属性 / プロパティ処理にフォールバックする（`ref` という名の属性も書けるまま）。
- * 後始末は callback 内で `onCleanup` を使えば効く（h / html 実行時の所有者がそのまま生きる）。
- * h.ts / html.ts のどちらからも同じ仕様で使う。
+ * 後始末は callback 内で `onCleanup` を使えば効く（html 実行時の所有者がそのまま生きる）。
  */
 export function isRef(name: string, v: unknown): v is (el: Element) => void {
   return name === REF_KEY && typeof v === "function";
@@ -147,7 +145,7 @@ export function isRef(name: string, v: unknown): v is (el: Element) => void {
 
 /**
  * 属性名から「属性穴か、プロパティ穴か」を解く。`.` 始まりは `.` を外して DOM プロパティ、
- * それ以外は従来どおり属性。h / tags のキーでも `html` の属性名でも同じ規則で使える。
+ * それ以外は従来どおり属性。`html` の属性名でも穴のキーでも同じ規則で使える。
  */
 export function resolveSetter(name: string): {
   key: string;
@@ -157,8 +155,8 @@ export function resolveSetter(name: string): {
 }
 
 /**
- * 単一の値を1つの prop / 属性として要素へ配線する。h の props と html の「値ぜんぶが1つの穴」の
- * 属性で共用し、「onXxx → イベント / `.foo` → プロパティ / それ以外 → 属性」の規則を1か所に揃える。
+ * 単一の値を1つの prop / 属性として要素へ配線する。html の「値ぜんぶが1つの穴」の
+ * 属性で使い、「onXxx → イベント / `.foo` → プロパティ / それ以外 → 属性」の規則を1か所に揃える。
  * 関数 / シグナル直渡しは accessor に正規化して effect で reactive にし、それ以外は一度だけ設定する。
  * （html の `class="box ${x}"` のような部分埋め込みは値を文字列合成する別処理なので対象外。）
  */
