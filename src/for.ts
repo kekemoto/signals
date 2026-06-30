@@ -1,5 +1,5 @@
-// for.ts — key 付きリスト差分（reconciliation）。h.ts / tags.ts と組み合わせる。
-//   For(() => items.value, item => item.id, item => h("li", {}, item()))
+// for.ts — key 付きリスト差分（reconciliation）。html と組み合わせる。
+//   For(() => items.value, item => item.id, item => html`<li>${() => item().text}</li>`)
 // 要点:
 //   - key ごとに DOM ノードを覚えておき、再描画では「作り直さず使い回す」
 //   - 行は createRoot で独立スコープにするので、リスト全体が再評価されても
@@ -7,7 +7,7 @@
 //   - 消えた key の行だけ dispose して DOM から除去する
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
-//     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
+//     行内では html`${() => item().text}` / html`${() => index() + 1}` のように穴で読む。
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal, signal } from "./reactive.js";
 

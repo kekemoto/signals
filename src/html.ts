@@ -178,7 +178,7 @@ function parse(strings: TemplateStringsArray): Descriptors {
 /**
  * パース済み（クローン済み）の DOM に値を配線する。属性 / イベント / プロパティ / ref / 子穴を
  * descriptors に従って処理する。配線規則（onXxx=イベント / `.foo`=プロパティ / それ以外=属性、
- * 関数・signal は accessor 化して effect）は node.ts に集約して h と共用する。
+ * 関数・signal は accessor 化して effect）は node.ts に集約する（for.ts / show.ts と共用）。
  */
 function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): void {
   // 走査して node 配列を作る（穴を処理して木を書き換える前に全ノード参照を確保する）。
