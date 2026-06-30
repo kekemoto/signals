@@ -609,7 +609,28 @@ defineElement("x-card", ({ slot }) => {
 Shadow DOM の `<slot>` と違い「接続時点の子を1回配置する静的投影」で、`slotchange` 相当の
 動的追従はしない。取り出した子はそのノードごと**移動**する（複製ではない）。
 
-描画先は host 直下（light DOM）。
+描画先は既定では host 直下（light DOM）。
+
+**Shadow DOM**: `options.shadow` に `"open"` / `"closed"` を渡すと `attachShadow` して
+`shadowRoot` にマウントする。スタイル隔離（`<style>` がページに漏れない／外の CSS を受けない）が
+要るコンポーネント向け。
+
+```js
+defineElement(
+  "x-badge",
+  () => html`
+    <style>:host { display: inline-block } span { color: tomato }</style>
+    <span><slot></slot></span>`,
+  { shadow: "open" },
+);
+// <x-badge>セール中</x-badge> → shadowRoot の <slot> が "セール中" を投影する
+```
+
+shadow DOM 時の**子の投影はネイティブの `<slot>`** を使う（上の例の `<slot></slot>`）。host 直下の
+light DOM の子はそのまま残し、ブラウザ標準の仕組みが shadow ツリーの `<slot>` へ投影する
+（`slotchange` などの動的追従もブラウザ任せで効く）。`ctx.slot()` は light DOM 専用の静的投影
+なので、shadow 時に呼ぶとエラーになる（slot モデルは light / shadow で**排他**）。`prop` /
+`host` / 再接続時の挙動は light DOM と同じ（`"closed"` では `el.shadowRoot` は `null`）。
 
 > **再接続の挙動**: 切断（`disconnectedCallback`）では即 dispose せず、次のマイクロタスクまで
 > 待ってから「まだ未接続なら本当に切り離された」と判断して root を dispose する。これにより

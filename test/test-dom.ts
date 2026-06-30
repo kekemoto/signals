@@ -881,3 +881,104 @@ test("defineElement: 拾われなかった子は撤去される", () => {
   assert.equal(el.querySelector(".named")?.childNodes.length, 0, "slot: 一致しない slot は空");
   assert.ok(!el.querySelector(".loose"), "slot: 拾われない子は撤去される");
 });
+test("defineElement: shadow DOM に描画する", () => {
+  defineElement(
+    "x-shadow",
+    () => {
+      const count = signal(0);
+      return html`<span class="c">${() => count.value}</span>`;
+    },
+    { shadow: "open" },
+  );
+  const el = document.createElement("x-shadow");
+  document.body.append(el);
+  assert.ok(el.shadowRoot, "shadow: open で shadowRoot が生える");
+  assert.equal(el.shadowRoot?.querySelector(".c")?.textContent, "0", "shadow: shadowRoot に描画");
+  assert.equal(el.querySelector(".c"), null, "shadow: light DOM には描画しない");
+});
+test("defineElement: shadow DOM 内の signal で再描画", () => {
+  const ext = signal(0);
+  defineElement("x-shadow-reactive", () => html`<b class="v">${() => ext.value}</b>`, {
+    shadow: "open",
+  });
+  const el = document.createElement("x-shadow-reactive");
+  document.body.append(el);
+  assert.equal(el.shadowRoot?.querySelector(".v")?.textContent, "0", "shadow: 初期値");
+  ext.value = 5;
+  assert.equal(el.shadowRoot?.querySelector(".v")?.textContent, "5", "shadow: signal で再描画");
+});
+test("defineElement: shadow DOM では light DOM の子を host に残す（ネイティブ <slot> 用）", () => {
+  defineElement("x-shadow-slot", () => html`<div class="wrap"><slot></slot></div>`, {
+    shadow: "open",
+  });
+  const el = document.createElement("x-shadow-slot");
+  el.innerHTML = `<p class="user">本文</p>`;
+  document.body.append(el);
+  // 静的投影と違い、利用者の子は host の light DOM にそのまま残る（ブラウザの <slot> が投影する）。
+  assert.ok(el.querySelector(".user"), "shadow: light DOM の子は host に残す");
+  assert.ok(el.shadowRoot?.querySelector("slot"), "shadow: shadowRoot に <slot> がある");
+});
+test("defineElement: shadow DOM で ctx.slot() はエラー", () => {
+  defineElement("x-shadow-noslot", ({ slot }) => html`<div>${slot()}</div>`, { shadow: "open" });
+  const el = document.createElement("x-shadow-noslot");
+  document.body.append(el);
+  // setup 内で slot() を呼ぶと throw する。connectedCallback で投げるので shadowRoot は付くが空。
+  assert.equal(el.shadowRoot?.childNodes.length, 0, "shadow: slot() を呼ぶと描画されない");
+});
+test("defineElement: closed shadow DOM", () => {
+  let captured: ShadowRoot | null = null;
+  defineElement(
+    "x-shadow-closed",
+    ({ host }) => {
+      captured = host.shadowRoot; // closed では host.shadowRoot は null
+      return html`<i class="x">hi</i>`;
+    },
+    { shadow: "closed" },
+  );
+  const el = document.createElement("x-shadow-closed");
+  document.body.append(el);
+  assert.equal(el.shadowRoot, null, "shadow: closed では外から shadowRoot を参照できない");
+  assert.equal(captured, null, "shadow: closed では host.shadowRoot も null");
+});
+test("defineElement: shadow DOM の切断確定で root を畳む", async () => {
+  const ext = signal(0);
+  let runs = 0;
+  defineElement(
+    "x-shadow-life",
+    () =>
+      html`<div>${() => {
+        runs++;
+        return ext.value;
+      }}</div>`,
+    { shadow: "open" },
+  );
+  const el = document.createElement("x-shadow-life");
+  document.body.append(el);
+  assert.equal(runs, 1, "shadow: マウントで effect が1回");
+  el.remove();
+  await tick();
+  ext.value = 1;
+  assert.equal(runs, 1, "shadow: 切断確定後は effect が走らない");
+  assert.equal(el.shadowRoot?.childNodes.length, 0, "shadow: 切断確定で shadowRoot を畳む");
+});
+test("defineElement: shadow DOM の再接続で setup し直す（attachShadow は1回）", async () => {
+  let setups = 0;
+  defineElement(
+    "x-shadow-reinit",
+    () => {
+      setups++;
+      return html`<div class="r">r</div>`;
+    },
+    { shadow: "open" },
+  );
+  const el = document.createElement("x-shadow-reinit");
+  document.body.append(el);
+  const firstRoot = el.shadowRoot;
+  assert.equal(setups, 1, "shadow: 初回 setup");
+  el.remove();
+  await tick();
+  document.body.append(el);
+  assert.equal(setups, 2, "shadow: 再接続で setup し直す");
+  assert.equal(el.shadowRoot, firstRoot, "shadow: 再接続でも同じ shadowRoot を使い回す");
+  assert.equal(el.shadowRoot?.querySelector(".r")?.textContent, "r", "shadow: 再接続後も描画");
+});
