@@ -8,14 +8,21 @@
 //   onError   : スコープにエラーバウンダリを張る。配下の effect の例外を所有ツリー越しに受ける
 //   cached    : 派生関数を計算共有＋value-cutoff 付きにする糖衣（読み口は () のまま）
 //
-// 派生値は「ただの関数」で書く:
-//   const fullName = () => first.value + " " + last.value;
+// signal は `[読み, 書き]` のタプルを返す。読みは accessor（`count()`）・書きは setter
+// （`setCount(v)`）:
+//   const [count, setCount] = signal(0);
+//   effect(() => console.log(count()));   // count の変化に反応する
+//   setCount(count() + 1);                // 書き込み（読みは常に最新を返す）
+//
+// 派生値は「ただの関数」で書く。reactive な値はすべて関数（accessor / 派生 / cached）なので
+// 読み口が一律 () に揃う:
+//   const fullName = () => first() + " " + last();
 //   effect(() => console.log(fullName()));   // first / last の変化に反応する
 // 関数は中間ノードを作らず、読まれた瞬間に最新値を計算するので、メモ化用の専用ノードは
 // 持たない（lazy・グリッチなしが素のまま得られる）。重い派生を複数箇所で読むので計算を
 // 共有したい・入力は変わるが結果が同じなら下流を止めたい（value-cutoff）といった場面だけ、
 // 派生関数を cached() で包む（中身は signal + effect の薄い糖衣で、読み口は () のまま）:
-//   const area = cached(() => w.value * h.value);
+//   const area = cached(() => w() * h());
 //   // area() を読む（計算は入力変化ごとに1回・複数読みでも共有・結果同値なら下流据え置き）
 //
 // 所有ツリー（ownership）:
@@ -40,12 +47,16 @@
 // =============================================================================
 
 // --- 型 ---------------------------------------------------------------------
-/** `.value` で読み書き、`.peek()` で追跡せずに読むリアクティブセル。 */
-export interface Signal<T> {
-  value: T;
-  /** 依存登録せずに現在値を読む。 */
-  peek(): T;
-}
+/** signal を読む accessor。呼ぶと現在値を返し、effect 内なら依存登録する。 */
+export type Accessor<T> = () => T;
+/** signal に書き込む setter。新しい値を渡す（Object.is で無変化なら通知しない）。 */
+export type Setter<T> = (next: T) => void;
+/**
+ * signal() が返す `[読み, 書き]` のタプル。読みは accessor（`count()`）、書きは setter
+ * （`setCount(v)`）。reactive な値はすべて関数（accessor / 派生 / cached）なので、穴へは
+ * accessor をそのまま渡せる（`${count}`）。追跡せずに今の値だけ読むときは `untrack(count)`。
+ */
+export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
 
 // 購読者リスト（ある signal を読んでいる computation の集合）。
 type Subscribers = Set<Computation>;
@@ -213,40 +224,23 @@ function notify(subscribers: Subscribers): void {
 }
 
 // --- signal -----------------------------------------------------------------
-// signal() が返すセルに付ける非公開のブランド。isSignal はこの印で判定する。
-// 値そのものに意味はなく、「この Symbol キーを持つか」だけを見る。外部からは
-// この Symbol を参照できないので、偶然 peek を持つだけの無関係なオブジェクトを
-// signal と誤認しない（duck typing の取りこぼし対策）。
-const SIGNAL = Symbol("signal");
-
-// 値ひとつ＋購読者リストひとつのリアクティブセル。
+// 値ひとつ＋購読者リストひとつのリアクティブセル。`[読み, 書き]` のタプルを返す。
+// 読みは accessor（`count()` で現在値・依存登録）、書きは setter（`setCount(v)`）。
+// reactive な値が「accessor も派生も cached も全部ただの関数」に揃うので、穴では
+// 関数かどうかだけ見れば reactive 判定でき、signal を見分けるブランドは要らない。
 export function signal<T>(initial: T): Signal<T> {
   let value = initial;
   const subscribers: Subscribers = new Set();
-  const cell: Signal<T> = {
-    get value(): T {
-      track(subscribers); // 読まれた → 依存登録
-      return value;
-    },
-    set value(next: T) {
-      if (Object.is(next, value)) return; // 無変化なら何もしない
-      value = next;
-      notify(subscribers); // 購読者へ通知
-    },
-    peek: () => value, // 追跡せずに読む
+  const read: Accessor<T> = () => {
+    track(subscribers); // 読まれた → 依存登録
+    return value;
   };
-  // ブランドを付ける。non-enumerable にして spread / Object.keys / JSON に漏らさない。
-  Object.defineProperty(cell, SIGNAL, { value: true });
-  return cell;
-}
-
-// signal() が返すセルかどうかを判定する。html で「関数の穴」と同じく
-// reactive に扱うため、シグナルを直接渡せる（${count} のように .value を省ける）。
-// 非公開の SIGNAL ブランドの有無で判定する。peek の有無を見る duck typing だと
-// peek を持つ無関係なオブジェクト（イテレータ系ライブラリ等）を誤って signal 扱い
-// してしまうため、外部から付けられないブランドを目印にして判定を正確にする。
-export function isSignal(x: unknown): x is Signal<unknown> {
-  return typeof x === "object" && x !== null && SIGNAL in x;
+  const write: Setter<T> = (next) => {
+    if (Object.is(next, value)) return; // 無変化なら何もしない
+    value = next;
+    notify(subscribers); // 購読者へ通知
+  };
+  return [read, write];
 }
 
 // --- effect -----------------------------------------------------------------
@@ -320,10 +314,10 @@ export function onError(handler: (err: unknown) => void): void {
 
 // --- untrack ----------------------------------------------------------------
 // fn の実行中だけ依存追跡を止める。effect の中で「依存登録せずに signal を読みたい」
-// ときに使う（読んだ signal が変わっても effect は再実行されない）。
-// 単一セルなら .peek() で足りるが、関数呼び出しをまたいで複数の signal を素通しで
-// 読むような場面はこちらが素直。所有ツリー（currentOwner）は触らないので、untrack の
-// 中で作った effect は従来どおり現在のスコープにぶら下がる。
+// ときに使う（読んだ signal が変わっても effect は再実行されない）。単一の signal なら
+// accessor をそのまま渡せる（untrack(count)）。関数呼び出しをまたいで複数の signal を
+// 素通しで読むような場面も関数で包んで渡せる。所有ツリー（currentOwner）は触らないので、
+// untrack の中で作った effect は従来どおり現在のスコープにぶら下がる。
 export function untrack<T>(fn: () => T): T {
   const prev = activeComputation;
   activeComputation = null;
@@ -421,8 +415,8 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
 // 中身は signal（結果置き場）+ effect（依存が変われば計算して書き込む）の合成にすぎず、
 // 読み口は素の派生関数とまったく同じ () => T。だから「まず関数で書き、ホットになったら
 // 包む」が最小差分でできる（呼び出し側 foo() は変えなくてよい）:
-//   const area = () => w.value * h.value;          // 素の派生
-//   const area = cached(() => w.value * h.value);  // ホット化（area() は無変更）
+//   const area = () => w() * h();          // 素の派生
+//   const area = cached(() => w() * h());  // ホット化（area() は無変更）
 //   - 計算の共有 : 何箇所から読んでも、入力変化ごとに1回しか計算しない
 //   - value-cutoff: 結果が前と同じなら（中間 signal の Object.is で）下流は走らない
 //   - 代償        : eager（未使用でも計算する）/ 生入力と同じ effect で読むと二重実行
@@ -449,8 +443,8 @@ export function cached<T>(fn: () => T): () => T {
   effect(() => {
     const next = fn(); // 依存が変わるたび計算
     if (cell)
-      cell.value = next; // 2回目以降: 書き込み（Object.is で下流を間引く）
+      cell[1](next); // 2回目以降: 書き込み（Object.is で下流を間引く）
     else cell = signal(next); // 初回: 結果で signal を作る
   });
-  return () => cell!.value; // 読み口（素の派生関数と同じく area() で読む）
+  return () => cell![0](); // 読み口（素の派生関数と同じく area() で読む）
 }

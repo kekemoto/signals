@@ -1,14 +1,16 @@
 // html.ts — タグ付きテンプレートリテラルで reactive な DOM を作る（lit / htm 風）。
-//   const count = signal(0);
+//   const [count, setCount] = signal(0);
 //   const el = html`
 //     <div class="box">
-//       <span>count: ${() => count.value}</span>
-//       <button onClick=${() => count.value++}>+1</button>
+//       <span>count: ${count}</span>
+//       <button onClick=${() => setCount(count() + 1)}>+1</button>
 //     </div>`;
+// 穴が reactive になる規則は単一: 「穴が関数なら reactive」。signal の読みは accessor
+// （`count` がそのまま関数）なので `${count}` で直接渡せ、派生は `${() => count() * 2}`。
 // 仕組み:
 //   - 静的な構造は <template> でブラウザに一度だけパースさせる（構築は1回）
 //   - 穴(${...})だけを「属性／イベント／子」として後から配線し、関数なら effect を張る
-//   - 子の関数穴は Node / 配列も返せる（${() => list.value.map(...)} で素のループが書ける）。
+//   - 子の関数穴は Node / 配列も返せる（${() => list().map(...)} で素のループが書ける）。
 //     ただし更新のたび範囲を作り直すので、行の状態を保ちたいリストは For を使う。
 //
 // テンプレ解釈を 2 段に分ける:
@@ -178,7 +180,7 @@ function parse(strings: TemplateStringsArray): Descriptors {
 /**
  * パース済み（クローン済み）の DOM に値を配線する。属性 / イベント / プロパティ / ref / 子穴を
  * descriptors に従って処理する。配線規則（onXxx=イベント / `.foo`=プロパティ / それ以外=属性、
- * 関数・signal は accessor 化して effect）は node.ts に集約する（for.ts / show.ts と共用）。
+ * 関数なら effect を張る）は node.ts に集約する（for.ts / show.ts と共用）。
  */
 function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): void {
   // 走査して node 配列を作る（穴を処理して木を書き換える前に全ノード参照を確保する）。
@@ -216,14 +218,14 @@ function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): 
   for (const run of refs) run();
 }
 
-/** "a ${x} b" のように穴を含む属性値を組み立てる。関数 / シグナルが混ざれば reactive。
+/** "a ${x} b" のように穴を含む属性値を組み立てる。関数が混ざれば reactive。
  *  名前が `.foo` ならその文字列を DOM プロパティへ入れる（部分埋め込みは常に文字列になる）。 */
 function wireDynamicAttr(el: Element, name: string, value: string, values: unknown[]): void {
   const { key, set } = resolveSetter(name);
   const parts = value.split(ATTR_SPLIT_RE); // [lit, idx, lit, idx, lit, ...]
   const compose = () =>
     parts.map((p, i) => (i % 2 === 0 ? p : String(readInput(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
-  // どれか1つでも関数 / シグナルなら毎回再計算、そうでなければ一度だけ設定する。
+  // どれか1つでも関数なら毎回再計算、そうでなければ一度だけ設定する。
   const reactive = parts.some((p, i) => i % 2 !== 0 && isReactiveInput(values[Number(p)]));
   if (reactive) effect(() => set(el, key, compose()));
   else set(el, key, compose());
