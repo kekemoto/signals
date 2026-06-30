@@ -881,3 +881,112 @@ test("defineElement: 拾われなかった子は撤去される", () => {
   assert.equal(el.querySelector(".named")?.childNodes.length, 0, "slot: 一致しない slot は空");
   assert.ok(!el.querySelector(".loose"), "slot: 拾われない子は撤去される");
 });
+test("defineElement: shadow DOM に描画する", () => {
+  defineElement(
+    "x-shadow",
+    () => {
+      const count = signal(0);
+      return html`<span class="c">${() => count.value}</span>`;
+    },
+    { shadow: true },
+  );
+  const el = document.createElement("x-shadow");
+  document.body.append(el);
+  assert.ok(el.shadowRoot, "shadow: open で shadowRoot が生える");
+  assert.equal(el.shadowRoot?.querySelector(".c")?.textContent, "0", "shadow: shadowRoot に描画");
+  assert.equal(el.querySelector(".c"), null, "shadow: light DOM には描画しない");
+});
+test("defineElement: shadow DOM 内の signal で再描画", () => {
+  const ext = signal(0);
+  defineElement("x-shadow-reactive", () => html`<b class="v">${() => ext.value}</b>`, {
+    shadow: true,
+  });
+  const el = document.createElement("x-shadow-reactive");
+  document.body.append(el);
+  assert.equal(el.shadowRoot?.querySelector(".v")?.textContent, "0", "shadow: 初期値");
+  ext.value = 5;
+  assert.equal(el.shadowRoot?.querySelector(".v")?.textContent, "5", "shadow: signal で再描画");
+});
+test("defineElement: shadow DOM でも ctx.slot() は light DOM と同じに動く", () => {
+  defineElement(
+    "x-shadow-slot",
+    ({ slot }) =>
+      html`<div class="card">
+        <header class="h">${slot("title")}</header>
+        <section class="b">${slot()}</section>
+      </div>`,
+    { shadow: true },
+  );
+  const el = document.createElement("x-shadow-slot");
+  el.innerHTML = `<h2 slot="title">見出し</h2><p>本文</p>`;
+  document.body.append(el);
+  // light DOM 時とまったく同じ静的投影。投影先が shadowRoot 内になるだけ。
+  const root = el.shadowRoot;
+  assert.equal(root?.querySelector(".h h2")?.textContent, "見出し", "shadow: 名前付き slot を投影");
+  assert.equal(root?.querySelector(".b p")?.textContent, "本文", "shadow: 名前なし slot を投影");
+  // 子は退避→投影で移動するので、host の light DOM には残らない（light DOM 時と同じ挙動）。
+  assert.equal(el.querySelector("h2"), null, "shadow: 投影は移動なので host には残らない");
+});
+test("defineElement: shadow DOM の切断確定で root を畳む", async () => {
+  const ext = signal(0);
+  let runs = 0;
+  defineElement(
+    "x-shadow-life",
+    () =>
+      html`<div>${() => {
+        runs++;
+        return ext.value;
+      }}</div>`,
+    { shadow: true },
+  );
+  const el = document.createElement("x-shadow-life");
+  document.body.append(el);
+  assert.equal(runs, 1, "shadow: マウントで effect が1回");
+  el.remove();
+  await tick();
+  ext.value = 1;
+  assert.equal(runs, 1, "shadow: 切断確定後は effect が走らない");
+  assert.equal(el.shadowRoot?.childNodes.length, 0, "shadow: 切断確定で shadowRoot を畳む");
+});
+test("defineElement: shadow DOM の再接続で setup し直す（attachShadow は1回）", async () => {
+  let setups = 0;
+  defineElement(
+    "x-shadow-reinit",
+    () => {
+      setups++;
+      return html`<div class="r">r</div>`;
+    },
+    { shadow: true },
+  );
+  const el = document.createElement("x-shadow-reinit");
+  document.body.append(el);
+  const firstRoot = el.shadowRoot;
+  assert.equal(setups, 1, "shadow: 初回 setup");
+  el.remove();
+  await tick();
+  document.body.append(el);
+  assert.equal(setups, 2, "shadow: 再接続で setup し直す");
+  assert.equal(el.shadowRoot, firstRoot, "shadow: 再接続でも同じ shadowRoot を使い回す");
+  assert.equal(el.shadowRoot?.querySelector(".r")?.textContent, "r", "shadow: 再接続後も描画");
+});
+test("defineElement: shadow DOM の再接続で slot 内容が復元される", async () => {
+  defineElement("x-shadow-reslot", ({ slot }) => html`<div class="named">${slot("title")}</div>`, {
+    shadow: true,
+  });
+  const el = document.createElement("x-shadow-reslot");
+  el.innerHTML = `<h2 slot="title">見出し</h2>`;
+  document.body.append(el);
+  assert.equal(
+    el.shadowRoot?.querySelector(".named h2")?.textContent,
+    "見出し",
+    "shadow reslot: 初回接続で slot が投影される",
+  );
+  el.remove();
+  await tick(); // 切断確定で dispose（退避していた子を host へ戻す）
+  document.body.append(el); // 再接続
+  assert.equal(
+    el.shadowRoot?.querySelector(".named h2")?.textContent,
+    "見出し",
+    "shadow reslot: 再接続でも slot の中身が復元される",
+  );
+});
