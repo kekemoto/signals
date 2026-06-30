@@ -16,6 +16,25 @@ export function toAccessor<T>(v: Signal<T> | (() => T)): () => T {
 }
 
 /**
+ * 穴・属性の入力が reactive か（関数 or signal 直渡し）を判定する。
+ * 「reactive な穴 ⇔ 関数 or signal」という読み取り規則の判定側で、`readInput` と対になる。
+ */
+export function isReactiveInput(v: unknown): v is (() => unknown) | Signal<unknown> {
+  return typeof v === "function" || isSignal(v);
+}
+
+/**
+ * 穴・属性の入力値を「今」読む。関数なら呼び、signal なら `.value`、静的ならそのまま。
+ * `toAccessor`（遅延版 `() => T`）の eager 版で、「関数 / signal 直渡し / 静的」の
+ * 正規化ルールを node.ts に一元化するための共用ヘルパー。
+ */
+export function readInput(v: unknown): unknown {
+  if (typeof v === "function") return (v as () => unknown)();
+  if (isSignal(v)) return v.value;
+  return v;
+}
+
+/**
  * `<!--hole-->`〜`<!--/hole-->` の範囲（start / end）を、値 v に合わせて描き替える。
  * プリミティブで既存が単一テキストならそのテキストを使い回し（DOM 構造を変えない）、
  * そうでなければ範囲を空にして toNode(v) を入れ直す。
@@ -168,7 +187,7 @@ export function bindProp(el: Element, name: string, v: unknown): void {
   }
   // キー名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
   const { key, set } = resolveSetter(name);
-  if (typeof v === "function" || isSignal(v)) {
+  if (isReactiveInput(v)) {
     const acc = toAccessor(v as Signal<unknown> | (() => unknown)); // 関数穴も signal 直渡しも揃える
     effect(() => set(el, key, acc()));
   } else {

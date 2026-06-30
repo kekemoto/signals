@@ -16,8 +16,8 @@
 //     値に依存しないのでテンプレート単位でキャッシュできる（同一テンプレは strings が同一参照）。
 //   - wire(descriptors, content, values) : パース済み DOM に値を配線（イベント / effect / 子）。
 
-import { bindProp, isRef, resolveSetter, toNode } from "./node.js";
-import { DEV, effect, isSignal } from "./reactive.js";
+import { bindProp, isReactiveInput, isRef, readInput, resolveSetter, toNode } from "./node.js";
+import { DEV, effect } from "./reactive.js";
 
 /** 穴の目印。属性値・コメントの両方にこの文字列を埋めてパース後に拾う。 */
 const MARK = "signals-hole-";
@@ -216,24 +216,15 @@ function wire(desc: Descriptors, content: DocumentFragment, values: unknown[]): 
   for (const run of refs) run();
 }
 
-/** 穴の値を読む。関数なら呼び、シグナルなら .value、それ以外はそのまま。 */
-function read(v: unknown): unknown {
-  return typeof v === "function" ? (v as () => unknown)() : isSignal(v) ? v.value : v;
-}
-
 /** "a ${x} b" のように穴を含む属性値を組み立てる。関数 / シグナルが混ざれば reactive。
  *  名前が `.foo` ならその文字列を DOM プロパティへ入れる（部分埋め込みは常に文字列になる）。 */
 function wireDynamicAttr(el: Element, name: string, value: string, values: unknown[]): void {
   const { key, set } = resolveSetter(name);
   const parts = value.split(ATTR_SPLIT_RE); // [lit, idx, lit, idx, lit, ...]
   const compose = () =>
-    parts.map((p, i) => (i % 2 === 0 ? p : String(read(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
+    parts.map((p, i) => (i % 2 === 0 ? p : String(readInput(values[Number(p)])))).join(""); // 偶数=静的, 奇数=穴
   // どれか1つでも関数 / シグナルなら毎回再計算、そうでなければ一度だけ設定する。
-  const reactive = parts.some((p, i) => {
-    if (i % 2 === 0) return false;
-    const v = values[Number(p)];
-    return typeof v === "function" || isSignal(v);
-  });
+  const reactive = parts.some((p, i) => i % 2 !== 0 && isReactiveInput(values[Number(p)]));
   if (reactive) effect(() => set(el, key, compose()));
   else set(el, key, compose());
 }
