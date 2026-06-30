@@ -23,7 +23,8 @@
 //   - dispose 時には、接続時に退避した元の light DOM の子（利用者が書いた slot 入力）を
 //     host へ戻す。setup の出力や接続後に動的追加した子は破棄するが、利用者の入力は復元するので、
 //     再接続は初回接続と同じ意味になる（slot の中身が再接続で永久に消えない）。
-import { createRoot, onCleanup, type Signal, signal } from "./reactive.js";
+import { HYDRATE_ATTR, runHydration } from "./hydration.js";
+import { createRoot, DEV, onCleanup, type Signal, signal } from "./reactive.js";
 
 /** defineElement のオプション。 */
 export interface DefineOptions {
@@ -60,7 +61,15 @@ export type Setup = (ctx: SetupContext) => Node | null | undefined | void;
 // host に紐づく文脈（host + ヘルパー）と、退避した元の light DOM の子を作る。
 // MutationObserver は最初に prop() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
 // lightChildren は dispose 時に host へ戻すため呼び出し側へ返す（再接続を初回接続と同じにする）。
-function makeContext(host: HTMLElement): {
+//
+// hydrating（adopt モード）のときは host の既存子＝サーバが出した setup の出力そのものなので、
+// 退避・クリアしない（消すと採用対象が消える）。slot 投影はサーバが既に済ませている前提で、
+// クライアントでの slot() は本段では非対象（空を返す）。lightChildren は空にして、真の切断時は
+// 採用した出力を破棄＝再接続で新規生成（CSR と同じ意味）に倒す。
+function makeContext(
+  host: HTMLElement,
+  hydrating: boolean,
+): {
   ctx: SetupContext;
   lightChildren: ChildNode[];
 } {
@@ -69,12 +78,17 @@ function makeContext(host: HTMLElement): {
   // 接続時点の light DOM の子を host から外して退避する（slot 入力）。
   // slot() が拾ったものだけが setup の出力経由で描画され、拾われなかったものは表示されない。
   // 退避した子は dispose 時に host へ戻され、再接続時に改めて投影される。
-  const lightChildren = [...host.childNodes];
-  host.replaceChildren();
+  // hydrating 時は採用対象なので退避もクリアもしない（lightChildren は空のまま）。
+  const lightChildren = hydrating ? [] : [...host.childNodes];
+  if (!hydrating) host.replaceChildren();
 
   const ctx: SetupContext = {
     host,
     slot(name?: string): DocumentFragment {
+      if (hydrating && DEV)
+        console.warn(
+          "defineElement(hydrate): slot() はハイドレーション中は未対応です。サーバが投影済みの出力をそのまま採用します。",
+        );
       const frag = document.createDocumentFragment();
       for (const n of lightChildren) {
         // Element だけが slot 属性を持てる。テキスト/コメントは常にデフォルトスロット行き。
@@ -153,12 +167,24 @@ export function defineElement(
 
     connectedCallback(): void {
       if (this.#dispose) return; // 既にマウント済み（移動による再接続もここで弾く）
+      // サーバ描画マーカーが付いていれば adopt モード（既存子を採用して配線・新規生成しない）。
+      // マーカーは observer を張る前に strip する（後始末＝plan のマーカー後始末、かつ
+      // prop() の MutationObserver に余計な属性変更を拾わせない）。
+      const hydrating = this.hasAttribute(HYDRATE_ATTR);
+      if (hydrating) this.removeAttribute(HYDRATE_ATTR);
       createRoot((dispose) => {
         this.#dispose = dispose;
-        const { ctx, lightChildren } = makeContext(this);
+        const { ctx, lightChildren } = makeContext(this, hydrating);
         this.#lightChildren = lightChildren;
-        const node = setup(ctx);
-        if (node != null) this.append(node);
+        if (hydrating) {
+          // 既存の light DOM（サーバ出力）を採用範囲に、setup の出力を配線する。
+          // 中の html / For / Show は新規生成せず既存ノードを claim する。戻り値は既に
+          // host の子なので append しない（再構築・移動を起こさない）。
+          runHydration(this, () => setup(ctx));
+        } else {
+          const node = setup(ctx);
+          if (node != null) this.append(node);
+        }
       });
     }
 

@@ -8,11 +8,19 @@
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では li(() => item().text) / li(() => index() + 1) のように穴で読む。
+import { toHtml } from "./emit.js";
+import { emitRange, RANGE } from "./emitted-html.js";
+import {
+  claimRange,
+  deferAdopt,
+  flushAdopt,
+  isHydrating,
+  nodesBetween,
+  withoutHydration,
+  withRoot,
+} from "./hydration.js";
 import { toAccessor } from "./node.js";
 import { effect, rooted, type Signal, signal } from "./reactive.js";
-
-// リスト全体を囲む開閉コメント。`<!--for-->…<!--/for-->` の対で範囲を作り、その間に行を並べる。
-const FOR = "for";
 
 interface Entry<T> {
   node: Node;
@@ -24,13 +32,55 @@ interface Entry<T> {
 export function For<T>(
   items: (() => T[]) | Signal<T[]>,
   keyFn: (item: T) => unknown,
-  render: (item: () => T, index: () => number) => Node,
+  // render はクライアントでは Node（`html` / `h`）を、サーバ（emit）では文字列を返す
+  // アイソモーフィックな関数。CSR 経路は Node 前提で扱う。
+  render: (item: () => T, index: () => number) => Node | string,
 ): DocumentFragment {
   const itemsFn = toAccessor(items); // signal なら .value を読む関数に正規化
-  const start = document.createComment(FOR);
-  const end = document.createComment(`/${FOR}`);
+  // サーバ（DOM 無し）では emit 用に文字列化する。items を 1 回読み、各行を render（= emit を返す
+  // 関数）で展開して `<!--for-->…<!--/for-->` で囲む（emitRange が adopt 側 claimRange(RANGE.for) と
+  // 同形のマーカーで包む）。effect は張らず、行は出現順に並べる（key は CSR の差分用で、サーバ出力
+  // には不要）。戻り値は生 HTML 封筒で、emit の子穴に入れても再エスケープされない。
+  if (typeof document === "undefined") {
+    const list = itemsFn();
+    let rows = "";
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      rows += toHtml(
+        render(
+          () => item,
+          () => i,
+        ),
+      );
+    }
+    return emitRange(RANGE.for, rows);
+  }
+  // ハイドレーション中はサーバが出した `<!--for-->…<!--/for-->` を採用する（作り直さない）。
+  // eager 評価で共有カーソルを先食いしないよう、その場では claim せず採用処理を遅延フラグメントに
+  // 包んで返す。駆動側（runHydration / 外側 html の子走査）がカーソルを `<!--for-->` の位置に
+  // 合わせて flush したとき、claimRange でこの For の範囲を claim して forBody を組み立てる。
+  if (isHydrating())
+    return deferAdopt(() => forBody(itemsFn, keyFn, render, claimRange(RANGE.for)));
+  return forBody(itemsFn, keyFn, render, null);
+}
+
+/**
+ * For の本体。新規描画（adopted=null）と採用（adopted=claim した開閉ペア）で共通。
+ * 採用時は既存の行ノードを使い回し（initialRows）、初回 effect だけ render を既存行へ adopt 配線する。
+ */
+function forBody<T>(
+  itemsFn: () => T[],
+  keyFn: (item: T) => unknown,
+  render: (item: () => T, index: () => number) => Node | string,
+  adopted: { start: Comment; end: Comment } | null,
+): DocumentFragment {
+  const start = adopted ? adopted.start : document.createComment(RANGE.for);
+  const end = adopted ? adopted.end : document.createComment(`/${RANGE.for}`);
   const frag = document.createDocumentFragment();
-  frag.append(start, end); // この2つの間にリストを並べる
+  // 採用時は start / end は既にホスト内にあるので frag には入れない（移動させない＝childList を
+  // 変えない）。新規時だけ frag にこの2つを入れて、呼び出し側が挿入する。
+  if (!adopted) frag.append(start, end); // この2つの間にリストを並べる
+  let initialRows: Node[] | null = adopted ? nodesBetween(start, end) : null;
 
   let entries = new Map<unknown, Entry<T>>(); // key -> Entry
 
@@ -38,6 +88,8 @@ export function For<T>(
     const items = itemsFn(); // ここで配列を購読（変わると再実行）
     const parent = end.parentNode;
     if (!parent) return; // まだ DOM に挿入されていない
+    const rows = initialRows; // この実行で採用する既存行（初回だけ非 null）
+    initialRows = null; // 採用は初回のみ。以降は通常生成。
 
     const keys = items.map(keyFn);
     const next = new Map<unknown, Entry<T>>();
@@ -52,12 +104,24 @@ export function For<T>(
         const indexSig = signal(i);
         // 行ごとの独立スコープ。accessor で渡すことで、行内の穴が itemSig / indexSig を
         // 購読し、値の差し替えに反応する。
-        const { value: node, dispose } = rooted(() =>
-          render(
-            () => itemSig.value,
-            () => indexSig.value,
-          ),
-        );
+        const row = rows?.[i]; // 採用時の既存行（あれば作り直さず adopt 配線する）
+        const { value: node, dispose } = rooted(() => {
+          const make = () =>
+            render(
+              () => itemSig.value,
+              () => indexSig.value,
+            );
+          // 採用時は既存行へカーソルを合わせて render を実行し、行内の html（遅延フラグメント）を
+          // flush して既存行へ adopt 配線する。ノードは既存行そのものを使う（戻り値は捨てる）。
+          if (row) {
+            withRoot(row, () => flushAdopt(make()));
+            return row;
+          }
+          // 新規行: サーバ DOM に対応が無い（mismatch / クライアントで増えた行）。ハイドレーション
+          // 中でも誤って既存ノードを claim しないよう、カーソルを外して新規生成する。
+          // CSR では render は Node を返す（string はサーバ経路のみ）。
+          return (isHydrating() ? withoutHydration(make) : make()) as Node;
+        });
         entry = { node, dispose, item: itemSig, index: indexSig };
       } else {
         // 使い回す行: 中身と位置を流し込む（Object.is で無変化なら通知は起きない）。
