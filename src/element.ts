@@ -7,13 +7,12 @@
 //
 // 何を橋渡しするか:
 //   - ライフサイクル: connected で createRoot を張って setup を走らせ、返ってきた DOM を
-//     マウントする。マウント先は既定では host 直下（light DOM）だが、
-//     `{ shadow: "open" | "closed" }` を渡すと attachShadow した shadowRoot にマウントする
-//     （スタイル隔離が要るコンポーネント向け）。本当に切り離されたら root を dispose
-//     （中の effect / onCleanup を全部畳む）。
+//     マウントする。マウント先は既定では host 直下（light DOM）だが、`{ shadow: true }` を
+//     渡すと attachShadow した shadowRoot にマウントする（スタイル隔離が要るコンポーネント向け）。
+//     本当に切り離されたら root を dispose（中の effect / onCleanup を全部畳む）。
 //     → html / h / For / Show が張る effect が「孤児」になってリークするのを防ぐ。
 //     shadow は「マウント先 + スタイル隔離」だけを変える。setup の書き方・slot・prop・再接続の
-//     挙動は light DOM とまったく同じ（Lit が renderRoot を差し替えるだけなのと同じ考え方）。
+//     挙動は light DOM とまったく同じ。
 //   - 入力 → signal: ctx.prop(name) が「プロパティ代入」と「属性の変更」を1つの signal に
 //     合流させる。host に accessor を張って el.foo = v を捕まえ（リッチな値もそのまま通る）、
 //     属性の変更は MutationObserver で観測して文字列のまま流し込む。
@@ -34,15 +33,13 @@ export interface DefineOptions {
   /** customElements.define に渡す追加オプション（`is` ビルトイン拡張など）。 */
   elementOptions?: ElementDefinitionOptions;
   /**
-   * 指定すると attachShadow して shadowRoot にマウントする（スタイル隔離が要るとき）。
-   * - 省略時は host 直下（light DOM）にマウントする（従来どおり）。
-   * - `"open"` … `el.shadowRoot` で外から参照できる shadow root。
-   * - `"closed"` … 外から参照できない shadow root。
+   * `true` にすると attachShadow（open）して shadowRoot にマウントする（スタイル隔離が要るとき）。
+   * 省略 / `false` なら host 直下（light DOM）にマウントする（従来どおり）。
    * 変わるのは「マウント先 + スタイル隔離」だけ。setup の書き方・`ctx.slot()` による子の投影・
    * `prop`・再接続の挙動は light DOM とまったく同じ（shadow でもネイティブ `<slot>` ではなく
    * `${slot(...)}` で投影する）。
    */
-  shadow?: ShadowRootMode;
+  shadow?: boolean;
 }
 
 /** setup に渡る文脈。操作対象の host と、外部からの入力を signal として読むヘルパーを持つ。 */
@@ -152,7 +149,7 @@ function makeContext(host: HTMLElement): {
 
 /**
  * setup の中身を持つ Custom Element を登録する。
- * 描画先は既定では host 直下（light DOM）。`{ shadow: "open" | "closed" }` で shadowRoot にできる。
+ * 描画先は既定では host 直下（light DOM）。`{ shadow: true }` で shadowRoot にできる。
  * @param name   タグ名（ハイフン必須。例: "x-counter"）
  * @param setup  中身を組む関数。createRoot 内で呼ばれ、返した Node がマウントされる。
  * @param options customElements.define に渡す追加設定 / shadow DOM の指定。
@@ -181,7 +178,7 @@ export function defineElement(
         // attachShadow は1要素につき1回だけ許されるので、再接続では既存の shadowRoot を使う。
         let mount: HTMLElement | ShadowRoot = this;
         if (shadowMode) {
-          if (!this.#shadow) this.#shadow = this.attachShadow({ mode: shadowMode });
+          if (!this.#shadow) this.#shadow = this.attachShadow({ mode: "open" });
           mount = this.#shadow;
         }
         const { ctx, lightChildren } = makeContext(this);
