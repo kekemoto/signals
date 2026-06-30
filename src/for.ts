@@ -1,5 +1,6 @@
 // for.ts — key 付きリスト差分（reconciliation）。html と組み合わせる。
-//   For(() => items.value, item => item.id, item => html`<li>${() => item().text}</li>`)
+//   For(items, item => item.id, item => html`<li>${() => item().text}</li>`)
+//   （items は配列を返す accessor。signal なら読みの accessor をそのまま渡す。）
 // 要点:
 //   - key ごとに DOM ノードを覚えておき、再描画では「作り直さず使い回す」
 //   - 行は createRoot で独立スコープにするので、リスト全体が再評価されても
@@ -8,8 +9,7 @@
 //   - render には item と index を **accessor（() => 値）** で渡す。行を使い回したまま
 //     「同じ key・新しいオブジェクト」や並べ替えによる位置変化を流し込めるようにするため。
 //     行内では html`${() => item().text}` / html`${() => index() + 1}` のように穴で読む。
-import { toAccessor } from "./node.js";
-import { effect, rooted, type Signal, signal } from "./reactive.js";
+import { effect, rooted, signal } from "./reactive.js";
 
 // リスト全体を囲む開閉コメント。`<!--for-->…<!--/for-->` の対で範囲を作り、その間に行を並べる。
 const FOR = "for";
@@ -17,16 +17,15 @@ const FOR = "for";
 interface Entry<T> {
   node: Node;
   dispose: () => void;
-  item: Signal<T>; // 行に流し込む現在の item（同 key・新オブジェクトでも差し替えられる）
-  index: Signal<number>; // 行の現在位置（並べ替えで更新する）
+  setItem: (item: T) => void; // 行に流し込む item を差し替える（同 key・新オブジェクトでも）
+  setIndex: (index: number) => void; // 行の現在位置を更新する（並べ替えで）
 }
 
 export function For<T>(
-  items: (() => T[]) | Signal<T[]>,
+  items: () => T[],
   keyFn: (item: T) => unknown,
   render: (item: () => T, index: () => number) => Node,
 ): DocumentFragment {
-  const itemsFn = toAccessor(items); // signal なら .value を読む関数に正規化
   const start = document.createComment(FOR);
   const end = document.createComment(`/${FOR}`);
   const frag = document.createDocumentFragment();
@@ -35,34 +34,29 @@ export function For<T>(
   let entries = new Map<unknown, Entry<T>>(); // key -> Entry
 
   effect(() => {
-    const items = itemsFn(); // ここで配列を購読（変わると再実行）
+    const list = items(); // ここで配列を購読（変わると再実行）
     const parent = end.parentNode;
     if (!parent) return; // まだ DOM に挿入されていない
 
-    const keys = items.map(keyFn);
+    const keys = list.map(keyFn);
     const next = new Map<unknown, Entry<T>>();
 
     // 1. 各 item のノードを用意（既存は使い回し、新規だけ createRoot で作る）
-    const nodes = items.map((item, i) => {
+    const nodes = list.map((item, i) => {
       const key = keys[i];
       if (next.has(key)) throw new Error(`For: duplicate key: ${String(key)}`);
       let entry = entries.get(key);
       if (!entry) {
-        const itemSig = signal(item); // 行ローカルに item / index を保持
-        const indexSig = signal(i);
-        // 行ごとの独立スコープ。accessor で渡すことで、行内の穴が itemSig / indexSig を
+        const [itemAcc, setItem] = signal(item); // 行ローカルに item / index を保持
+        const [indexAcc, setIndex] = signal(i);
+        // 行ごとの独立スコープ。accessor で渡すことで、行内の穴が itemAcc / indexAcc を
         // 購読し、値の差し替えに反応する。
-        const { value: node, dispose } = rooted(() =>
-          render(
-            () => itemSig.value,
-            () => indexSig.value,
-          ),
-        );
-        entry = { node, dispose, item: itemSig, index: indexSig };
+        const { value: node, dispose } = rooted(() => render(itemAcc, indexAcc));
+        entry = { node, dispose, setItem, setIndex };
       } else {
         // 使い回す行: 中身と位置を流し込む（Object.is で無変化なら通知は起きない）。
-        entry.item.value = item; // 同 key・新オブジェクトでも行内の穴が更新される（#17）
-        entry.index.value = i; // 並べ替えで位置が変われば index 依存の穴も更新される（#18）
+        entry.setItem(item); // 同 key・新オブジェクトでも行内の穴が更新される（#17）
+        entry.setIndex(i); // 並べ替えで位置が変われば index 依存の穴も更新される（#18）
       }
       next.set(key, entry);
       return entry.node;

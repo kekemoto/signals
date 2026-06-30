@@ -1,7 +1,7 @@
 // element.ts — reactive.ts を Custom Element の中身づくりに繋ぐ薄いアダプタ。
 //   defineElement("x-counter", () => {
-//     const count = signal(0);
-//     return html`<button onClick=${() => count.value++}>${count}</button>`;
+//     const [count, setCount] = signal(0);
+//     return html`<button onClick=${() => setCount(count() + 1)}>${count}</button>`;
 //   });
 //   document.body.append(document.createElement("x-counter"));
 //
@@ -47,11 +47,12 @@ export interface SetupContext {
   /** 登録した Custom Element 自身（この要素）。イベント発火やプロパティ操作の入り口。 */
   host: HTMLElement;
   /**
-   * 外部からの入力 name を映す signal を返す（同じ name には同じ signal を返す）。
+   * 外部からの入力 name を映す signal `[読み, 書き]` を返す（同じ name には同じ signal を返す）。
    * - host にプロパティ accessor を張るので、`el.foo = v` の代入が signal に入る（リッチな値 OK）。
    * - 属性 `foo="..."` の変更も MutationObserver で観測して signal に入る（値は文字列のまま）。
    * - 初期値の優先順: upgrade 前に代入されていたプロパティ > 静的 HTML の属性 > initial。
-   * プロパティ・属性のどちらで書かれても、読み出しは常にこの signal（または `host.foo`）から。
+   * プロパティ・属性のどちらで書かれても、読み出しは常にこの accessor（または `host.foo`）から:
+   *   const [name, setName] = prop("name");  html`<p>${name}</p>`
    */
   prop<T = unknown>(name: string, initial?: T): Signal<T>;
   /**
@@ -116,14 +117,12 @@ function makeContext(host: HTMLElement): {
 
       // el.foo の読み書きを signal に直結する。setter は signal に入れるだけで、
       // 属性へは書き戻さない（out 反映が要るなら利用者が effect + toggleAttribute 等で書く）。
-      const s = sig;
+      const [read, write] = sig;
       Object.defineProperty(host, name, {
         configurable: true,
         enumerable: true,
-        get: () => s.value,
-        set: (v: unknown) => {
-          s.value = v;
-        },
+        get: () => read(),
+        set: (v: unknown) => write(v),
       });
       // dispose 時（disconnected）に accessor を外す。再接続時は setup ごと作り直す。
       onCleanup(() => delete (host as unknown as Record<string, unknown>)[name]);
@@ -134,7 +133,7 @@ function makeContext(host: HTMLElement): {
           for (const r of records) {
             const key = r.attributeName;
             const target = key && signals.get(key);
-            if (target) target.value = host.getAttribute(key); // 値が同じなら signal 側が無視する
+            if (target) target[1](host.getAttribute(key)); // 値が同じなら signal 側が無視する
           }
         });
         observer.observe(host, { attributes: true });
