@@ -4,11 +4,9 @@ export {
   type Setup,
   type SetupContext,
 } from "./element.js";
-export { emit } from "./emit.js";
 export { For } from "./for.js";
 export { type Child, h, type Props, type PropValue } from "./h.js";
 export { html } from "./html.js";
-export { HYDRATE_ATTR, hydrate } from "./hydration.js";
 export {
   batch,
   cached,
