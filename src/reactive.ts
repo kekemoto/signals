@@ -364,7 +364,15 @@ export function rooted<T>(fn: () => T): { value: T; dispose: () => void } {
   let dispose!: () => void;
   createRoot((d) => {
     dispose = d;
-    value = fn();
+    // fn が throw すると root は親を持たない独立スコープなので所有ツリーで自動回収
+    // されず、fn 内で例外までに張った effect が孤児として残る（静かなリーク）。
+    // 掴んでおいた dispose で部分的に作られた root を畳んでから例外を上げる。
+    try {
+      value = fn();
+    } catch (err) {
+      dispose();
+      throw err;
+    }
   });
   return { value, dispose };
 }
