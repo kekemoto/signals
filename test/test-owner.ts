@@ -11,6 +11,7 @@ import {
   getOwner,
   onCleanup,
   onError,
+  rooted,
   runWithOwner,
   signal,
 } from "../src/reactive.js";
@@ -504,4 +505,46 @@ test("dispose: flush 中に先行 effect が後続を dispose したら後続は
   assert.equal(bRuns, 1, "dispose 済みの B はこの世代で走らない");
   setS(2);
   assert.equal(bRuns, 1, "復活していないので以後も B は反応しない");
+});
+
+test("rooted: fn が throw しても部分的に張った effect をリークしない", () => {
+  const [s, setS] = signal(0);
+  let runs = 0;
+  let cleaned = 0;
+  assert.throws(
+    () =>
+      rooted(() => {
+        effect(() => {
+          s();
+          runs++;
+          onCleanup(() => cleaned++);
+        });
+        throw new Error("render failed");
+      }),
+    /render failed/,
+    "fn の例外はそのまま伝播する",
+  );
+  assert.equal(runs, 1, "throw 前に張った effect は初回だけ実行");
+  assert.equal(cleaned, 1, "throw 時に root が畳まれ cleanup が走る");
+  setS(1); // 畳まれていれば反応しない（孤児化していない）
+  assert.equal(runs, 1, "throw で畳まれた effect は以後反応しない（リークなし）");
+});
+
+test("rooted: 正常時は value と dispose を返し dispose で畳める", () => {
+  const [s, setS] = signal(0);
+  let runs = 0;
+  const { value, dispose } = rooted(() => {
+    effect(() => {
+      s();
+      runs++;
+    });
+    return 42;
+  });
+  assert.equal(value, 42, "fn の戻り値が value になる");
+  assert.equal(runs, 1, "内部 effect は初回実行");
+  setS(1);
+  assert.equal(runs, 2, "dispose 前は反応する");
+  dispose();
+  setS(2);
+  assert.equal(runs, 2, "dispose 後は止まる");
 });
