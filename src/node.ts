@@ -1,37 +1,26 @@
 // node.ts — 穴・子の値を DOM ノードへ変換する共通処理（html.ts / for.ts / show.ts で共用）
 
-import { effect, isSignal, type Signal } from "./reactive.js";
+import { effect } from "./reactive.js";
 
 // reactive な子穴を囲む開閉コメント。`<!--hole-->…<!--/hole-->` の対で範囲を作り、
 // その間を effect で描き替える（コメントの内容は単なる目印で、配線には使わない）。
 const HOLE = "hole";
 
 /**
- * reactive な入力を1つの accessor `() => T` に正規化する。
- * signal 直渡し（`${count}`）と accessor（`${() => ...}`）の両方を
- * 受ける穴・コンポーネント引数で、「読み口は関数」に揃えるために共用する。
+ * 穴・属性の入力が reactive か（= 関数か）を判定する。reactive な値はすべて関数
+ * （signal の accessor `count` / 派生 / cached）なので、関数かどうかだけを見ればよい。
+ * 「reactive な穴 ⇔ 関数」という単一規則の判定側で、`readInput` と対になる。
  */
-export function toAccessor<T>(v: Signal<T> | (() => T)): () => T {
-  return isSignal(v) ? () => v.value : v;
+export function isReactiveInput(v: unknown): v is () => unknown {
+  return typeof v === "function";
 }
 
 /**
- * 穴・属性の入力が reactive か（関数 or signal 直渡し）を判定する。
- * 「reactive な穴 ⇔ 関数 or signal」という読み取り規則の判定側で、`readInput` と対になる。
- */
-export function isReactiveInput(v: unknown): v is (() => unknown) | Signal<unknown> {
-  return typeof v === "function" || isSignal(v);
-}
-
-/**
- * 穴・属性の入力値を「今」読む。関数なら呼び、signal なら `.value`、静的ならそのまま。
- * `toAccessor`（遅延版 `() => T`）の eager 版で、「関数 / signal 直渡し / 静的」の
- * 正規化ルールを node.ts に一元化するための共用ヘルパー。
+ * 穴・属性の入力値を「今」読む。関数なら呼び、静的ならそのまま。
+ * 「関数（accessor 含む）/ 静的」の正規化を node.ts に一元化するための共用ヘルパー。
  */
 export function readInput(v: unknown): unknown {
-  if (typeof v === "function") return (v as () => unknown)();
-  if (isSignal(v)) return v.value;
-  return v;
+  return typeof v === "function" ? (v as () => unknown)() : v;
 }
 
 /**
@@ -50,11 +39,10 @@ function updateRange(start: Comment, end: Comment, v: unknown): void {
   end.before(toNode(v));
 }
 
-/** 値を1つの Node に変換する。関数 / シグナルは reactive な範囲、配列はまとめて並べる。 */
+/** 値を1つの Node に変換する。関数（accessor 含む）は reactive な範囲、配列はまとめて並べる。 */
 export function toNode(child: unknown): Node {
   // 真偽値はどちらも非表示（属性側の true=空文字 とは別。子では false/true とも何も描かない）。
   if (child == null || typeof child === "boolean") return document.createTextNode("");
-  if (isSignal(child)) child = toAccessor(child); // シグナル直接は関数に正規化
   if (typeof child === "function") {
     // コメント2つで範囲を作り、返り値が何であれその間を再描画する。
     // Node / 配列を返せば構造ごと入れ替わる（${() => list.value.map(...)} が書ける）。
@@ -76,7 +64,7 @@ export function toNode(child: unknown): Node {
 }
 
 /** class / style のオブジェクト形式かを見分ける（配列・null・Node は除く）。
- *  signal / 関数は呼び出し側で値に解決済みのものが届くのでここでは考慮しない。 */
+ *  関数は呼び出し側で値に解決済みのものが届くのでここでは考慮しない。 */
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Node);
 }
@@ -176,7 +164,7 @@ export function resolveSetter(name: string): {
 /**
  * 単一の値を1つの prop / 属性として要素へ配線する。html の「値ぜんぶが1つの穴」の
  * 属性で使い、「onXxx → イベント / `.foo` → プロパティ / それ以外 → 属性」の規則を1か所に揃える。
- * 関数 / シグナル直渡しは accessor に正規化して effect で reactive にし、それ以外は一度だけ設定する。
+ * 関数（accessor 含む）は effect で reactive にし、それ以外は一度だけ設定する。
  * （html の `class="box ${x}"` のような部分埋め込みは値を文字列合成する別処理なので対象外。）
  */
 export function bindProp(el: Element, name: string, v: unknown): void {
@@ -188,8 +176,7 @@ export function bindProp(el: Element, name: string, v: unknown): void {
   // キー名に `.` を付けると DOM プロパティ代入、それ以外は属性（resolveSetter が振り分ける）。
   const { key, set } = resolveSetter(name);
   if (isReactiveInput(v)) {
-    const acc = toAccessor(v as Signal<unknown> | (() => unknown)); // 関数穴も signal 直渡しも揃える
-    effect(() => set(el, key, acc()));
+    effect(() => set(el, key, v())); // 関数穴（accessor）は毎回読み直して reactive に
   } else {
     set(el, key, v); // 静的（null/false/真偽の意味は setAttr が保つ）
   }

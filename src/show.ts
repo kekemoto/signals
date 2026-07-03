@@ -1,16 +1,16 @@
 // show.ts — 条件表示（Solid の <Show> 相当）。html と組み合わせる。
-//   Show(() => user.value != null,
+//   Show(() => user() != null,
 //        () => html`<p>ようこそ</p>`,
 //        () => html`<p>ログインしてください</p>`)   // 第3引数(fallback)は任意
 // render は「真だった値を返す accessor」を受け取れる（Solid 同様）。null 除去した値を
 // そのまま使える:
-//   Show(() => user.value, (user) => html`<p>${() => user().name}</p>`)  // user() は NonNullable
+//   Show(user, (user) => html`<p>${() => user().name}</p>`)  // user() は NonNullable
+//   （when は値を返す accessor。signal なら読みの accessor をそのまま渡す。）
 // 要点:
 //   - when が真なら render() を、偽なら fallback() を表示する
 //   - 切り替え時に中身を createRoot で作り、消えるときは dispose（中の effect も止まる）
 //   - when の「真偽」が変わったときだけ作り直す（同じ間は据え置き）
-import { toAccessor } from "./node.js";
-import { effect, rooted, type Signal } from "./reactive.js";
+import { effect, rooted } from "./reactive.js";
 
 // 中身を囲む開閉コメント。`<!--show-->…<!--/show-->` の対で範囲を作り、その間に中身を出し入れする。
 const SHOW = "show";
@@ -27,15 +27,14 @@ interface Current {
 }
 
 export function Show<T>(
-  when: (() => T) | Signal<T>,
+  when: () => T,
   render: RenderBranch<T>,
   fallback: Branch | null = null,
 ): DocumentFragment {
-  const whenFn = toAccessor(when); // signal なら .value を読む関数に正規化
   // 「真だった値」を返す accessor。render は show が真の間だけ生きる部分木から読むので、
-  // whenFn() は常に真値として扱える（型上も NonNullable<T> に絞る）。真偽が偽に変わる時は
+  // when() は常に真値として扱える（型上も NonNullable<T> に絞る）。真偽が偽に変わる時は
   // 先に外側の effect がこの部分木を dispose するため、ここから偽値が読まれることはない。
-  const value = () => whenFn() as NonNullable<T>;
+  const value = () => when() as NonNullable<T>;
   const start = document.createComment(SHOW);
   const end = document.createComment(`/${SHOW}`);
   const frag = document.createDocumentFragment();
@@ -45,7 +44,7 @@ export function Show<T>(
   let current: Current | null = null; // { node, dispose }
 
   effect(() => {
-    const show = !!whenFn(); // when を購読
+    const show = !!when(); // when を購読
 
     if (show === shown) return; // 真偽が変わらなければ何もしない（中身は据え置き）
     shown = show;
