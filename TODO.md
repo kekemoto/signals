@@ -18,7 +18,6 @@
 
 | 優先 | 項目 | 理由 |
 |---|---|---|
-| 中 | #61 npm audit / 依存脆弱性 | dev 依存のみで配布物に影響は無いが既知の high。`npm audit fix` で低コストに解消でき、CI ゲートも無い |
 | 中 | #59 prop() の型と属性=文字列 | 型 `Signal<T>` が実挙動（属性経路は文字列・削除で null）とズレる。利用者が踏みやすい |
 | 低 | #57 raw text | レンダリングの機能ギャップ（割り切り）。必要になったときに |
 | 低 | #58 reactive イベント | 体験改善。#13（イベントオプション）とは別軸 |
@@ -127,16 +126,6 @@ README のコード片だけで、動かして試せるものがない。
 
 **対応案**: `examples/index.html`（IIFE 版を読み込む TODO リスト程度）を1枚置く。
 ビルド後に `npx serve` で開けるようにし、README からリンクする。
-
-### 61. 依存に既知脆弱性があり、CI に audit ゲートも無い [未実装]
-
-`npm audit` で high 1 件（undici）・low 1 件（esbuild）が出ている。いずれも
-devDependencies 配下（jsdom / esbuild 経由）で、本体は runtime 依存ゼロのため
-**配布パッケージには影響しない**。が、放置されているうえ CI（`.github/workflows/ci.yml`）に
-`npm audit` のステップが無いので、今後増えても気づけない。
-
-**対応案**: `npm audit fix` で現状を解消し、CI に `npm audit --omit=dev` か
-`--audit-level=high` のステップを足す（dev のみの指摘で止めたくないなら閾値を調整）。
 
 ### 62. パッケージング検証（publint / attw）と独立 typecheck が無い [未実装]
 
