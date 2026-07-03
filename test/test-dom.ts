@@ -701,21 +701,64 @@ test("defineElement: onCleanup が切断確定で呼ばれる", async () => {
   await tick(); // 遅延 dispose を確定させる
   assert.equal(state.cleaned, true, "defineElement: 切断確定で onCleanup 発火");
 });
-test("defineElement: ctx.prop に属性の変更が流れ込む", async () => {
-  defineElement("x-greet", ({ prop }) => {
-    const [name] = prop("name");
+test("defineElement: ctx.attr に属性の変更が流れ込む", async () => {
+  defineElement("x-greet", ({ attr }) => {
+    const [name] = attr("name");
     return html`<p>${() => `hello ${name() ?? "?"}`}</p>`;
   });
   const el = document.createElement("x-greet");
   el.setAttribute("name", "Alice");
   document.body.append(el);
-  assert.equal(el.querySelector("p")?.textContent, "hello Alice", "defineElement: prop 属性初期値");
+  assert.equal(el.querySelector("p")?.textContent, "hello Alice", "defineElement: attr 属性初期値");
   el.setAttribute("name", "Bob");
   await tick(); // MutationObserver の配信を待つ
   assert.equal(el.querySelector("p")?.textContent, "hello Bob", "defineElement: 属性変更で再描画");
   el.removeAttribute("name");
   await tick();
   assert.equal(el.querySelector("p")?.textContent, "hello ?", "defineElement: 属性削除で null");
+});
+test("defineElement: ctx.attr は常に文字列（数値は読む側で変換）", async () => {
+  defineElement("x-count", ({ attr }) => {
+    const [count] = attr("count", "0"); // 属性は文字列。読む側で数値化する
+    return html`<p>${() => Number(count() ?? 0) * 10}</p>`;
+  });
+  const el = document.createElement("x-count");
+  el.setAttribute("count", "41");
+  document.body.append(el);
+  assert.equal(el.querySelector("p")?.textContent, "410", "defineElement: attr 初期属性を数値化");
+  el.setAttribute("count", "9");
+  await tick(); // MutationObserver の配信を待つ
+  assert.equal(el.querySelector("p")?.textContent, "90", "defineElement: attr 属性変更を数値化");
+});
+test("defineElement: ctx.attr の initial は属性が無いときだけ効く", () => {
+  defineElement("x-fallback", ({ attr }) => {
+    const [mode] = attr("mode", "auto");
+    return html`<p>${() => mode() ?? "?"}</p>`;
+  });
+  const el = document.createElement("x-fallback");
+  document.body.append(el); // 属性なし → initial
+  assert.equal(el.querySelector("p")?.textContent, "auto", "defineElement: 属性なしで initial");
+  assert.equal(el.hasAttribute("mode"), false, "defineElement: initial は DOM 属性に書き出さない");
+});
+test("defineElement: ctx.attr の setter は属性へ書き戻す", () => {
+  const captured: { set?: (v: string | null) => void } = {};
+  defineElement("x-reflect", ({ attr }) => {
+    const [color, set] = attr("color");
+    captured.set = set;
+    return html`<p>${() => color() ?? "none"}</p>`;
+  });
+  const el = document.createElement("x-reflect");
+  document.body.append(el);
+  captured.set?.("blue");
+  assert.equal(el.getAttribute("color"), "blue", "defineElement: setter で setAttribute される");
+  assert.equal(
+    el.querySelector("p")?.textContent,
+    "blue",
+    "defineElement: setter で signal も同期更新",
+  );
+  captured.set?.(null);
+  assert.equal(el.hasAttribute("color"), false, "defineElement: null で removeAttribute される");
+  assert.equal(el.querySelector("p")?.textContent, "none", "defineElement: 削除で signal も null");
 });
 test("defineElement: ctx.prop はプロパティ代入を捕まえる（リッチな値）", () => {
   defineElement("x-list", ({ prop }) => {

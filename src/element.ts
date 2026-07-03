@@ -11,12 +11,16 @@
 //     渡すと attachShadow した shadowRoot にマウントする（スタイル隔離が要るコンポーネント向け）。
 //     本当に切り離されたら root を dispose（中の effect / onCleanup を全部畳む）。
 //     → html / h / For / Show が張る effect が「孤児」になってリークするのを防ぐ。
-//     shadow は「マウント先 + スタイル隔離」だけを変える。setup の書き方・slot・prop・再接続の
-//     挙動は light DOM とまったく同じ。
-//   - 入力 → signal: ctx.prop(name) が「プロパティ代入」と「属性の変更」を1つの signal に
-//     合流させる。host に accessor を張って el.foo = v を捕まえ（リッチな値もそのまま通る）、
-//     属性の変更は MutationObserver で観測して文字列のまま流し込む。
-//     外から <x-el foo="..."> を書き換えても el.foo = v しても、同じ signal 経由で再描画が走る。
+//     shadow は「マウント先 + スタイル隔離」だけを変える。setup の書き方・slot・prop / attr・
+//     再接続の挙動は light DOM とまったく同じ。
+//   - 入力 → signal: ctx.prop / ctx.attr が外部からの入力を signal にする。経路ごとに値の型が
+//     違うので、口を分けてそれぞれを正直な型で返す:
+//       prop(name) … host にプロパティ accessor を張り、el.foo = v の代入を捕まえる。
+//                     リッチな値（オブジェクト・配列）もそのまま T で通る（Signal<T>）。
+//       attr(name) … 属性 foo="..." の変更を MutationObserver で観測し、文字列のまま流す
+//                     （削除で null。Signal<string | null>）。型変換は読む側で行う。setter は
+//                     属性へ書き戻す（null で削除）ので DOM 属性を単一の真実にできる。
+//     属性・プロパティを1つの値に合流させたいときは、利用者が両者を effect で束ねる。
 //
 // 再接続の扱い:
 //   - disconnected で即 dispose せず queueMicrotask まで待ち、その時点でまだ
@@ -26,7 +30,7 @@
 //   - dispose 時には、接続時に退避した元の light DOM の子（利用者が書いた slot 入力）を
 //     host へ戻す。setup の出力や接続後に動的追加した子は破棄するが、利用者の入力は復元するので、
 //     再接続は初回接続と同じ意味になる（slot の中身が再接続で永久に消えない）。
-import { createRoot, onCleanup, type Signal, signal } from "./reactive.js";
+import { createRoot, onCleanup, type Setter, type Signal, signal } from "./reactive.js";
 
 /** defineElement のオプション。 */
 export interface DefineOptions {
@@ -36,7 +40,7 @@ export interface DefineOptions {
    * `true` にすると attachShadow（open）して shadowRoot にマウントする（スタイル隔離が要るとき）。
    * 省略 / `false` なら host 直下（light DOM）にマウントする（従来どおり）。
    * 変わるのは「マウント先 + スタイル隔離」だけ。setup の書き方・`ctx.slot()` による子の投影・
-   * `prop`・再接続の挙動は light DOM とまったく同じ（shadow でもネイティブ `<slot>` ではなく
+   * `prop` / `attr`・再接続の挙動は light DOM とまったく同じ（shadow でもネイティブ `<slot>` ではなく
    * `${slot(...)}` で投影する）。
    */
   shadow?: boolean;
@@ -47,14 +51,27 @@ export interface SetupContext {
   /** 登録した Custom Element 自身（この要素）。イベント発火やプロパティ操作の入り口。 */
   host: HTMLElement;
   /**
-   * 外部からの入力 name を映す signal `[読み, 書き]` を返す（同じ name には同じ signal を返す）。
-   * - host にプロパティ accessor を張るので、`el.foo = v` の代入が signal に入る（リッチな値 OK）。
-   * - 属性 `foo="..."` の変更も MutationObserver で観測して signal に入る（値は文字列のまま）。
-   * - 初期値の優先順: upgrade 前に代入されていたプロパティ > 静的 HTML の属性 > initial。
-   * プロパティ・属性のどちらで書かれても、読み出しは常にこの accessor（または `host.foo`）から:
-   *   const [name, setName] = prop("name");  html`<p>${name}</p>`
+   * 外部からの **プロパティ代入** を映す signal `[読み, 書き]` を返す（同じ name には同じ signal）。
+   * host に accessor を張るので `el.foo = v` がそのまま signal に入り、`host.foo` の読み出しも
+   * signal から返る。オブジェクト・配列などリッチな値もそのまま `T` で通る（`html` の `.foo=${...}`
+   * のリッチな値もこの経路で届く）。upgrade 前（接続前）に代入されていた値も初期値として拾う。
+   * 初期値の優先順: upgrade 前に代入されていたプロパティ > `initial`。
+   *   const [items, setItems] = prop<string[]>("items", []);  html`<ul>${() => items().map(...)}</ul>`
+   * 属性経由の入力は型が文字列で別物なので `attr()` を使う（この口は属性を観測しない）。
    */
   prop<T = unknown>(name: string, initial?: T): Signal<T>;
+  /**
+   * 外部からの **属性** `name="..."` を映す signal `[読み, 書き]` を返す（同じ name には同じ signal）。
+   * `MutationObserver` で属性変更を観測し、値を**文字列のまま**流す（属性削除は `null`）。静的 HTML の
+   * `name="..."` は初期値として読む。初期値の優先順: 静的 HTML の属性 > `initial`（既定 `null`）。
+   * 属性は素で常に文字列なので戻り値は `Signal<string | null>`。数値などが欲しければ読む側で変換する:
+   *   const [count, setCount] = attr("count", "0");  html`<p>${() => Number(count()) + 1}</p>`
+   * setter は属性へ書き戻す（`setAttribute`、`null` で `removeAttribute`）ので、signal を更新すると
+   * DOM 属性にも反映される（`x-el[foo] { ... }` の属性セレクタが効く）。DOM を単一の真実として
+   * signal はその鏡になる。ただし `initial` は signal の開始値で、DOM 属性には書き出さない。
+   * リッチな値はプロパティ経由なので `prop()` を使う。
+   */
+  attr(name: string, initial?: string | null): Signal<string | null>;
   /**
    * 接続時に利用者が host 直下へ書いていた light DOM の子を取り出す（静的投影）。
    * - `slot()` … `slot` 属性のない子（デフォルトスロット）。
@@ -71,14 +88,19 @@ export interface SetupContext {
 export type Setup = (ctx: SetupContext) => Node | null | undefined | void;
 
 // host に紐づく文脈（host + ヘルパー）と、退避した元の light DOM の子を作る。
-// MutationObserver は最初に prop() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
+// MutationObserver は最初に attr() が呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
 // lightChildren は dispose 時に host へ戻すため呼び出し側へ返す（再接続を初回接続と同じにする）。
 // shadow / light の違いはここには現れない（マウント先が変わるだけで投影モデルは共通）。
 function makeContext(host: HTMLElement): {
   ctx: SetupContext;
   lightChildren: ChildNode[];
 } {
-  const signals = new Map<string, Signal<unknown>>();
+  // プロパティ経路（prop）と属性経路（attr）は型が違うので signal を別管理する。
+  const props = new Map<string, Signal<unknown>>();
+  // attr は「公開 signal（setter は属性へ書き戻す）」と「生の write（DOM→signal 反映用）」を持つ。
+  // MutationObserver は write で入れる（公開 setter だと setAttribute が再発火して書き戻しループ）。
+  const attrs = new Map<string, { sig: Signal<string | null>; write: Setter<string | null> }>();
+  // MutationObserver は attr が最初に呼ばれたとき1つだけ張り、onCleanup で dispose 時に外す。
   let observer: MutationObserver | null = null;
   // 接続時点の light DOM の子を host から外して退避する（slot 入力）。
   // slot() が拾ったものだけが setup の出力経由で描画され、拾われなかったものは表示されない。
@@ -99,12 +121,11 @@ function makeContext(host: HTMLElement): {
       return frag;
     },
     prop<T = unknown>(name: string, initial?: T): Signal<T> {
-      let sig = signals.get(name);
+      let sig = props.get(name);
       if (sig) return sig as Signal<T>; // 同じ name には同じ signal を返す
 
-      // 初期値の優先順: upgrade 前に代入されていたプロパティ > 静的 HTML の属性 > initial。
+      // 初期値の優先順: upgrade 前に代入されていたプロパティ > initial。
       let init: unknown = initial;
-      if (host.hasAttribute(name)) init = host.getAttribute(name);
       const own = Object.getOwnPropertyDescriptor(host, name);
       if (own && "value" in own) {
         // upgrade（accessor 設置）前の el.foo = v はただの data property として host に乗っている。
@@ -113,10 +134,9 @@ function makeContext(host: HTMLElement): {
         delete (host as unknown as Record<string, unknown>)[name];
       }
       sig = signal(init);
-      signals.set(name, sig);
+      props.set(name, sig);
 
-      // el.foo の読み書きを signal に直結する。setter は signal に入れるだけで、
-      // 属性へは書き戻さない（out 反映が要るなら利用者が effect + toggleAttribute 等で書く）。
+      // el.foo の読み書きを signal に直結する。setter は signal に入れるだけ。
       const [read, write] = sig;
       Object.defineProperty(host, name, {
         configurable: true,
@@ -126,20 +146,40 @@ function makeContext(host: HTMLElement): {
       });
       // dispose 時（disconnected）に accessor を外す。再接続時は setup ごと作り直す。
       onCleanup(() => delete (host as unknown as Record<string, unknown>)[name]);
+      return sig as Signal<T>;
+    },
+    attr(name: string, initial: string | null = null): Signal<string | null> {
+      const cached = attrs.get(name);
+      if (cached) return cached.sig; // 同じ name には同じ signal を返す
+
+      // 初期値の優先順: 静的 HTML の属性 > initial。属性値は常に文字列。
+      // initial は signal の開始値であって DOM 属性には書き出さない（接続で host を汚さない）。
+      const init = host.hasAttribute(name) ? host.getAttribute(name) : initial;
+      const [read, write] = signal<string | null>(init);
+      // setter は属性へ書き戻す（DOM を単一の真実にする）。null は属性削除、それ以外は setAttribute。
+      // signal も同期更新して即時の読みを揃える（続いて発火する MutationObserver は同値で無視される）。
+      const set: Setter<string | null> = (v) => {
+        if (v == null) host.removeAttribute(name);
+        else host.setAttribute(name, v);
+        write(v);
+      };
+      const sig: Signal<string | null> = [read, set];
+      attrs.set(name, { sig, write });
 
       if (!observer) {
-        // 初回だけ観測を開始。prop された name に対応する属性変更を文字列のまま signal へ流す。
+        // 初回だけ観測を開始。attr された name の属性変更を文字列のまま signal へ流す。
         observer = new MutationObserver((records) => {
           for (const r of records) {
             const key = r.attributeName;
-            const target = key && signals.get(key);
-            if (target) target[1](host.getAttribute(key)); // 値が同じなら signal 側が無視する
+            const target = key && attrs.get(key);
+            // DOM 由来の変更なので生の write で入れる（set だと setAttribute が再発火してループ）。
+            if (target) target.write(host.getAttribute(key)); // 同値なら signal 側が無視する
           }
         });
         observer.observe(host, { attributes: true });
         onCleanup(() => observer!.disconnect()); // dispose 時（disconnected）に観測を止める
       }
-      return sig as Signal<T>;
+      return sig;
     },
   };
 
